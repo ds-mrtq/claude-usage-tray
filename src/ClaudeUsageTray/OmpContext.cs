@@ -13,6 +13,10 @@ public sealed class OmpContextInfo
     public string? Model { get; init; }
     public string? Title { get; init; }
     public DateTimeOffset At { get; init; }
+    public string Path { get; init; } = "";
+    /// <summary>Tổng usage.cost.total của mọi câu trả lời trong file phiên (USD, theo bảng giá OMP).</summary>
+    public double CostUsd { get; init; }
+    public DateTimeOffset? StartedAt { get; init; }
     public double Percent => Window > 0 ? Math.Round(Tokens / Window * 100) : 0;
 }
 
@@ -27,31 +31,65 @@ public static class OmpContextReader
 {
     private const int DefaultReserve = 16384;
 
+    /// <summary>Phiên OMP ghi gần nhất (bất kể bao lâu).</summary>
     public static OmpContextInfo? TryLoad(string agentDir)
     {
+        var f = Files(agentDir).OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault();
+        return f == null ? null : Load(agentDir, f);
+    }
+
+    /// <summary>
+    /// Phiên OMP coi là đang chạy: có tiến trình omp và file phiên được ghi trong khoảng <paramref name="within"/>.
+    /// OMP không ghi dấu kết thúc phiên, nên phiên mở mà rảnh lâu hơn khoảng này sẽ không hiện.
+    /// </summary>
+    public static List<OmpContextInfo> Active(string agentDir, TimeSpan within)
+    {
+        var list = new List<OmpContextInfo>();
         try
         {
-            var sessions = Path.Combine(agentDir, "sessions");
-            if (!Directory.Exists(sessions)) return null;
-            var file = Directory.EnumerateDirectories(sessions)
+            if (System.Diagnostics.Process.GetProcessesByName("omp").Length == 0) return list;
+        }
+        catch (InvalidOperationException) { return list; }
+        var since = DateTime.UtcNow - within;
+        foreach (var f in Files(agentDir).Where(f => f.LastWriteTimeUtc >= since).OrderByDescending(f => f.LastWriteTimeUtc))
+            if (Load(agentDir, f) is { } o) list.Add(o);
+        return list;
+    }
+
+    private static IEnumerable<FileInfo> Files(string agentDir)
+    {
+        var sessions = Path.Combine(agentDir, "sessions");
+        if (!Directory.Exists(sessions)) return [];
+        try
+        {
+            return Directory.EnumerateDirectories(sessions)
                 .Where(d => !Path.GetFileName(d).StartsWith("__"))
                 .SelectMany(d => Directory.EnumerateFiles(d, "*.jsonl"))
                 .Select(f => new FileInfo(f))
-                .OrderByDescending(f => f.LastWriteTimeUtc)
-                .FirstOrDefault();
-            if (file == null) return null;
+                .ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }
+    }
 
-            var (usage, model) = LastUsage(file.FullName);
-            if (usage == null) return null;
-            var window = ModelWindow(Path.Combine(agentDir, "models.db"), model) ?? 200_000;
+    private static OmpContextInfo? Load(string agentDir, FileInfo file)
+    {
+        try
+        {
+            var sc = Scan(file);
+            if (sc.Tokens == null) return null;
+            var window = ModelWindow(Path.Combine(agentDir, "models.db"), sc.Model) ?? 200_000;
+            var at = new DateTimeOffset(file.LastWriteTimeUtc).ToLocalTime();
             return new OmpContextInfo
             {
-                Tokens = usage.Value,
+                Path = file.FullName,
+                Tokens = sc.Tokens.Value,
                 Window = window,
                 AutoCompactAt = Threshold(window, ReadCompaction(Path.Combine(agentDir, "config.yml"))),
-                Model = model,
+                Model = sc.Model,
                 Title = Title(file.FullName),
-                At = new DateTimeOffset(file.LastWriteTimeUtc).ToLocalTime(),
+                At = at,
+                CostUsd = sc.Cost,
+                StartedAt = sc.First,
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -60,37 +98,58 @@ public static class OmpContextReader
         }
     }
 
-    /// <summary>Đọc ngược phần cuối file (tối đa 4 MB) tìm usage của câu trả lời assistant gần nhất.</summary>
-    private static (double? tokens, string? model) LastUsage(string path)
+    // File phiên OMP có thể tới hàng chục MB: đọc tiếp từ chỗ đã đọc lần trước (chỉ phần mới ghi thêm)
+    private sealed class ScanState
     {
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        for (long take = 256 * 1024; ; take *= 4)
+        public long Offset;
+        public string Partial = "";
+        public double Cost;
+        public DateTimeOffset? First;
+        public double? Tokens;
+        public string? Model;
+    }
+
+    private static readonly Dictionary<string, ScanState> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    private static ScanState Scan(FileInfo file)
+    {
+        if (!Cache.TryGetValue(file.FullName, out var st) || file.Length < st.Offset)
+            Cache[file.FullName] = st = new ScanState();
+        if (file.Length == st.Offset) return st;
+        using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        fs.Seek(st.Offset, SeekOrigin.Begin);
+        var buf = new byte[fs.Length - st.Offset];
+        fs.ReadExactly(buf);
+        st.Offset += buf.Length;
+        var text = st.Partial + Encoding.UTF8.GetString(buf);
+        var cut = text.LastIndexOf('\n');
+        st.Partial = cut < 0 ? text : text[(cut + 1)..];
+        if (cut < 0) return st;
+        foreach (var l in text[..cut].Split('\n'))
         {
-            var start = Math.Max(0, fs.Length - take);
-            fs.Seek(start, SeekOrigin.Begin);
-            var buf = new byte[fs.Length - start];
-            fs.ReadExactly(buf);
-            var lines = Encoding.UTF8.GetString(buf).Split('\n');
-            for (var i = lines.Length - 1; i >= (start > 0 ? 1 : 0); i--)
+            if (st.First == null && l.Contains("\"timestamp\""))
             {
-                var l = lines[i];
-                if (!l.Contains("\"usage\"") || !l.Contains("\"assistant\"")) continue;
-                try
-                {
-                    using var doc = JsonDocument.Parse(l);
-                    var r = doc.RootElement;
-                    if (Str(r, "type") != "message" || !r.TryGetProperty("message", out var m) || Str(m, "role") != "assistant") continue;
-                    if (Str(m, "stopReason") is "aborted" or "error") continue;
-                    if (!m.TryGetProperty("usage", out var u) || u.ValueKind != JsonValueKind.Object) continue;
-                    double t = Num(u, "contextTokens") ?? 0;
-                    if (t <= 0) t = (Num(u, "input") ?? 0) + (Num(u, "cacheRead") ?? 0) + (Num(u, "cacheWrite") ?? 0);
-                    if (t <= 0) continue;
-                    return (t, Str(m, "model"));
-                }
-                catch (JsonException) { }
+                var m = Regex.Match(l, "\"timestamp\":\"([^\"]+)\"");
+                if (m.Success && DateTimeOffset.TryParse(m.Groups[1].Value, out var ts)) st.First = ts.ToLocalTime();
             }
-            if (start == 0 || take >= 4 * 1024 * 1024) return (null, null);
+            if (!l.Contains("\"usage\"") || !l.Contains("\"assistant\"")) continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(l);
+                var r = doc.RootElement;
+                if (Str(r, "type") != "message" || !r.TryGetProperty("message", out var msg) || Str(msg, "role") != "assistant") continue;
+                if (!msg.TryGetProperty("usage", out var u) || u.ValueKind != JsonValueKind.Object) continue;
+                if (u.TryGetProperty("cost", out var c) && Num(c, "total") is { } usd) st.Cost += usd;
+                if (Str(msg, "stopReason") is "aborted" or "error") continue;
+                double t = Num(u, "contextTokens") ?? 0;
+                if (t <= 0) t = (Num(u, "input") ?? 0) + (Num(u, "cacheRead") ?? 0) + (Num(u, "cacheWrite") ?? 0);
+                if (t <= 0) continue;
+                st.Tokens = t;
+                st.Model = Str(msg, "model") ?? st.Model;
+            }
+            catch (JsonException) { }
         }
+        return st;
     }
 
     private static string? Title(string path)

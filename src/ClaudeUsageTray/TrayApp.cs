@@ -19,6 +19,8 @@ internal sealed class TrayApp : ApplicationContext
     private readonly ToolStripMenuItem _startup;
     private UsageData? _data;
     private ApiUsage.Result? _api;
+    private string? _selected; // phiên đang xem, null = tổng
+    private readonly FileSystemWatcher? _sessWatcher;
     private readonly System.Windows.Forms.Timer _clearStatus = new() { Interval = 8000 };
     private IntPtr _hIcon;
 
@@ -71,6 +73,21 @@ internal sealed class TrayApp : ApplicationContext
             _ompWatcher.Changed += (_, _) => Kick();
         }
         _popup.RefreshRequested += RefreshNow;
+        _popup.SessionSelected += key => { _selected = key; Reload(); };
+        // File theo phiên của mod (~/.claude/usage-meter/sessions/*.json): phiên mới, nhịp, kết thúc
+        var sessDir = SessionList.Dir(path);
+        try
+        {
+            Directory.CreateDirectory(sessDir);
+            _sessWatcher = new FileSystemWatcher(sessDir, "*.json")
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+                EnableRaisingEvents = true,
+            };
+            _sessWatcher.Changed += (_, _) => Kick();
+            _sessWatcher.Created += (_, _) => Kick();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
         _clearStatus.Tick += (_, _) => { _clearStatus.Stop(); Renderer.Status = null; _popup.Invalidate(); };
         _debounce.Tick += (_, _) => { _debounce.Stop(); Reload(); };
         _tick.Tick += (_, _) => Reload(); // vẽ lại đếm ngược reset và trạng thái "cũ"
@@ -91,7 +108,8 @@ internal sealed class TrayApp : ApplicationContext
     private void Reload()
     {
         var now = DateTimeOffset.Now;
-        _data = UsageData.Load(_path, _ompPath, now, _api) ?? _data;
+        _data = UsageData.Load(_path, _ompPath, now, _api, _selected) ?? _data;
+        if (_selected != null && _data?.Selected == null) _selected = null; // phiên đã kết thúc: về xem tổng
         var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
         using var bmp = Renderer.DrawIcon(_data, size, now);
         var h = bmp.GetHicon();
@@ -146,6 +164,7 @@ internal sealed class TrayApp : ApplicationContext
         _icon.Visible = false;
         _icon.Dispose();
         _watcher?.Dispose();
+        _sessWatcher?.Dispose();
         _ompWatcher?.Dispose();
         _tick.Dispose();
         _debounce.Dispose();

@@ -37,6 +37,7 @@ internal static class Program
 
     private static int RenderToFiles(string path, string? omp, string dir)
     {
+        var args0 = Environment.GetCommandLineArgs();
         Directory.CreateDirectory(dir);
         var now = DateTimeOffset.Now;
         // --api: gọi API làm mới một lần (như bấm nút) trước khi vẽ
@@ -47,7 +48,16 @@ internal static class Program
             Console.WriteLine(r != null ? "API: " + string.Join(", ", r.Limits.Select(l => $"{l.Kind} {l.PercentUsed}% reset {l.ResetsAt:HH:mm dd/MM}")) : "API lỗi: " + err);
             api = r;
         }
+        // --select <khoá phiên | số thứ tự 1..n>, --expand: kiểm hình chế độ xem phiên/danh sách (không phải smoke)
+        var selArg = Arg(args0, "--select");
+        Renderer.Expanded = Array.IndexOf(args0, "--expand") >= 0;
         var d = UsageData.Load(path, omp, now, api);
+        if (selArg != null && d != null)
+        {
+            var key = int.TryParse(selArg, out var n) && n >= 1 && n <= d.Sessions.Count ? d.Sessions[n - 1].Key : selArg;
+            d = UsageData.Load(path, omp, now, api, key);
+        }
+        if (d != null) foreach (var e in d.Sessions) Console.WriteLine($"phiên {e.Kind} {e.Percent}% {e.Tokens} / {e.Window} cost={e.CostUsd:0.00} legacy={e.Legacy}");
         const float scale = 1.5f;
         var w = (int)(340 * scale);
         var h = Renderer.DrawPanel(null, d, w, scale, now);

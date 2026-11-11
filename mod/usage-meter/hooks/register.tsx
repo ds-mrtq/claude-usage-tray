@@ -365,9 +365,37 @@ async function exportJson($: EngineInterface, force = false) {
       mainModel: v.mainModel ?? null,
       mainEffort: v.mainEffort ?? null,
     }
-    await $.fs.write(`${home.split('\\').join('/')}/.claude/usage-meter.json`, JSON.stringify(out, null, 1))
+    const base = home.split('\\').join('/')
+    await $.fs.write(`${base}/.claude/usage-meter.json`, JSON.stringify(out, null, 1))
+    // File riêng của phiên: widget liệt kê các phiên đang chạy và xem từng phiên
+    lastSessionOut = { ...out, cwd: await $.session.cwd().catch(() => null), endedAt: null, heartbeatAt: out.writtenAt }
+    await $.fs.write(sessionFile(base, out.sessionId), JSON.stringify(lastSessionOut, null, 1))
   } catch {
     /* không chặn pane nếu ghi file lỗi */
+  }
+}
+
+// ---------- File theo phiên (~/.claude/usage-meter/sessions/<sid>.json) ----------
+// Mod không xoá được file: phiên kết thúc thì ghi endedAt, app tự bỏ qua. Phiên mở mà rảnh vẫn ghi nhịp
+// (heartbeatAt) mỗi phút vào file riêng của nó, không đụng file chung (file chung: phiên ghi sau cùng thắng).
+let lastSessionOut: Record<string, unknown> | undefined
+function sessionFile(base: string, sid: string) {
+  return `${base}/.claude/usage-meter/sessions/${sid.replace(/[^A-Za-z0-9_-]/g, '_')}.json`
+}
+async function homeBase($: EngineInterface) {
+  const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
+  return home ? home.split('\\').join('/') : undefined
+}
+async function heartbeat($: EngineInterface) {
+  try {
+    const base = await homeBase($)
+    if (!base) return
+    if (!lastSessionOut) return void (await exportJson($, true))
+    const now = await $.clock.now()
+    lastSessionOut = { ...lastSessionOut, heartbeatAt: new Date(now).toISOString() }
+    await $.fs.write(sessionFile(base, String(lastSessionOut.sessionId)), JSON.stringify(lastSessionOut, null, 1))
+  } catch {
+    /* bỏ qua */
   }
 }
 
@@ -645,6 +673,7 @@ export const register: Register = on => {
     await refreshHistory($, await $.clock.now()).catch(() => undefined)
     void $.ui.open({ id: PANE, title: TITLE })
     $.clock.every(30_000, () => $.ui.invalidate('ui.render'))
+    $.clock.every(60_000, () => void heartbeat($))
     return r
   })
 
@@ -656,6 +685,19 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__usage-meter__snapshot' }, async $ => {
     const v = await view($)
     return { result: JSON.stringify({ ...v, localTime: new Date(v.now).toString() }, null, 1) }
+  })
+
+  // Phiên kết thúc (thoát, /clear, resume...): đánh dấu file của đúng phiên đó; ghi ngắn vì chuỗi kết thúc có hạn giờ
+  on('session.end', async ($, e, next) => {
+    try {
+      const base = await homeBase($)
+      const at = new Date(await $.clock.now()).toISOString()
+      if (base) await $.fs.write(sessionFile(base, e.sessionId), JSON.stringify({ schema: 1, sessionId: e.sessionId, endedAt: at, reason: e.reason }))
+      if (lastSessionOut?.sessionId === e.sessionId) lastSessionOut = undefined
+    } catch {
+      /* bỏ qua */
+    }
+    return next(e)
   })
 
   on('session.measure', async ($, e, next) => {

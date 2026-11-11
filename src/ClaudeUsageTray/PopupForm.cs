@@ -16,6 +16,8 @@ internal sealed class PopupForm : Form
     private UsageData? _data;
     /// <summary>Anh bấm nút làm mới ở header.</summary>
     public event Action? RefreshRequested;
+    /// <summary>Anh chọn một phiên trong danh sách (null = xem tổng).</summary>
+    public event Action<string?>? SessionSelected;
     private readonly WindowSettings _s = WindowSettings.Load();
     private float _zoom;
     private bool _userMoved;
@@ -184,7 +186,18 @@ internal sealed class PopupForm : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         Renderer.DrawPanel(e.Graphics, _data, Width, Scale_, DateTimeOffset.Now, Renderer.Maximized ? Height : 0);
+        if (Log.On)
+        {
+            // Vùng bấm theo toạ độ màn hình, để script smoke bấm chuột thật đúng chỗ
+            var hits = string.Join(" ", Renderer.Hits.Select(h =>
+            {
+                var c = PointToScreen(new Point((int)(h.rect.X + h.rect.Width / 2), (int)(h.rect.Y + h.rect.Height / 2)));
+                return $"{(h.key.StartsWith("cc:") ? "cc" : h.key.StartsWith("omp:") ? "omp" : h.key)}@{c.X},{c.Y}";
+            }));
+            if (hits != _lastHits) { _lastHits = hits; Log.Write("Hits " + hits); }
+        }
     }
+    private string? _lastHits;
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
@@ -192,9 +205,9 @@ internal sealed class PopupForm : Form
         if (hover != Renderer.Hover)
         {
             Renderer.Hover = hover;
-            Cursor = hover != Renderer.HeaderButton.None ? Cursors.Hand : Cursors.Default;
             Invalidate();
         }
+        Cursor = hover != Renderer.HeaderButton.None || Renderer.HitSession(e.Location) != null ? Cursors.Hand : Cursors.Default;
         base.OnMouseMove(e);
     }
 
@@ -212,6 +225,21 @@ internal sealed class PopupForm : Form
             case Renderer.HeaderButton.Close: HidePanel("nút x"); return;
             case Renderer.HeaderButton.Max: ToggleMaximize(); return;
             case Renderer.HeaderButton.Refresh: Log.Write("Refresh button"); RefreshRequested?.Invoke(); return;
+        }
+        switch (Renderer.HitSession(e.Location))
+        {
+            case null: break;
+            case Renderer.ToggleKey:
+                Renderer.Expanded = !Renderer.Expanded;
+                Log.Write($"Session list expanded={Renderer.Expanded}");
+                Relayout(keepBottom: !_userMoved);
+                Invalidate();
+                return;
+            case var key:
+                Renderer.Expanded = false;
+                Log.Write($"Session selected: {(key == Renderer.TotalKey ? "tổng" : key.Split(':')[0])}");
+                SessionSelected?.Invoke(key == Renderer.TotalKey ? null : key);
+                return;
         }
         if (e.Y < Renderer.HeaderHeight(Scale_))
         {

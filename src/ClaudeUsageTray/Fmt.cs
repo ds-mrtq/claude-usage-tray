@@ -20,5 +20,17 @@ internal static class Fmt
         return d > 0 ? $"{d}d {h}h" : h > 0 ? $"{h}h {mm}m" : $"{mm}m";
     }
 
+    private static readonly string[] Thu = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+    /// <summary>Thời điểm theo giờ máy: "15:40" nếu hôm nay, "mai 08:00", còn lại "T2 16/11 15:00".</summary>
+    public static string When(DateTimeOffset at, DateTimeOffset now)
+    {
+        var t = at.ToLocalTime();
+        var n = now.ToLocalTime();
+        if (t.Date == n.Date) return t.ToString("HH:mm", Inv);
+        if (t.Date == n.Date.AddDays(1)) return "mai " + t.ToString("HH:mm", Inv);
+        return $"{Thu[(int)t.DayOfWeek]} {t.ToString("dd/MM HH:mm", Inv)}";
+    }
+
     public static string Ago(TimeSpan t) => t.TotalSeconds < 60 ? $"{Math.Max(1, (int)t.TotalSeconds)}s" : Dur(t);
 }

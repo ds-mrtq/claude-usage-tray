@@ -55,7 +55,7 @@ internal static class Renderer
         }
         var five = d.FiveHour;
         if (five?.ResetsAt != null) parts.Add("reset " + Fmt.Dur(five.ResetsAt.Value - now));
-        if (d.Cost != null) parts.Add("hôm nay " + Fmt.Usd(d.Cost.Today));
+        if (d.Cost != null && !double.IsNaN(d.Cost.Today)) parts.Add("hôm nay " + Fmt.Usd(d.Cost.Today));
         var s = "Claude · " + string.Join(" · ", parts);
         if (now - d.WrittenAt > StaleAfter) s += " (cũ " + Fmt.Ago(now - d.WrittenAt) + ")";
         return s.Length > 127 ? s[..127] : s;
@@ -81,6 +81,20 @@ internal static class Renderer
     public static bool Busy;
     /// <summary>Thông báo ngắn ở header (lỗi làm mới...), thay cho dòng "x trước".</summary>
     public static string? Status;
+    /// <summary>Danh sách chọn phiên đang mở ra.</summary>
+    public static bool Expanded;
+    /// <summary>Khoá nút mở danh sách phiên trong <see cref="Hits"/>.</summary>
+    public const string ToggleKey = "__toggle";
+    /// <summary>Khoá chọn xem tổng (mọi phiên).</summary>
+    public const string TotalKey = "__total";
+    /// <summary>Vùng bấm (pixel trong bảng) vẽ ở lần vẽ gần nhất: nút danh sách, từng dòng phiên.</summary>
+    public static readonly List<(RectangleF rect, string key)> Hits = [];
+
+    public static string? HitSession(Point p)
+    {
+        foreach (var (r, k) in Hits) if (r.Contains(p)) return k;
+        return null;
+    }
 
     public static HeaderButton HitButton(Point p, int width, float scale) =>
         CloseRect(width, scale).Contains(p) ? HeaderButton.Close
@@ -100,7 +114,9 @@ internal static class Renderer
         if (stretchTo > 0 && d != null)
         {
             var natural = DrawPanel(null, d, width, scale, now);
-            var gaps = d.Limits.Count + (d.Context?.Percent != null ? 1 : 0) + (d.OmpContext != null ? 1 : 0) + (d.Cost != null ? 1 : 0);
+            var total = d.Selected == null && d.Sessions.Count > 0;
+            var gaps = d.Limits.Count + (d.Cost != null ? 1 : 0) + (total ? 1
+                : (d.Context?.Percent != null ? 1 : 0) + (d.OmpContext != null ? 1 : 0));
             if (gaps > 0 && stretchTo > natural) extra = (stretchTo - natural) / gaps;
         }
 
@@ -197,11 +213,61 @@ internal static class Renderer
             g.DrawLine(xp, cr.Right - m, cr.Y + m, cr.X + m, cr.Bottom - m);
         }
         y += S(20);
-        if (d?.MainModel != null)
+        if (g != null) Hits.Clear();
+        var totalView = d != null && d.Selected == null && d.Sessions.Count > 0;
+        if (d != null && (d.Sessions.Count > 0 || d.Selected != null))
         {
-            var chip = Pretty(d.MainModel) + (d.MainEffort != null ? " · " + d.MainEffort : "");
-            Chip(g, chip, fChip, Theme.Effort(d.MainEffort), P, y, scale);
+            // Ô chọn phiên: bấm để mở danh sách các phiên đang chạy
+            var sel = d.Selected;
+            var label = sel == null
+                ? $"Tất cả phiên ({d.Sessions.Count})"
+                : $"{sel.Kind} · {sel.Name}" + (d.MainModel != null ? " · " + Pretty(d.MainModel) : "") + (d.MainEffort != null ? " · " + d.MainEffort : "");
+            var maxW = iw - S(16);
+            while (label.Length > 6 && TextW(label, fChip) > maxW) label = label[..^2] + "…";
+            var pill = new RectangleF(P, y, TextW(label, fChip) + S(18), S(15));
+            if (g != null)
+            {
+                using var pb = new SolidBrush(sel == null ? Theme.Track : sel.Kind == "OMP" ? Color.FromArgb(0x5c, 0x4a, 0x6b) : Theme.Effort(d.MainEffort));
+                FillRounded(g, pb, pill, pill.Height / 2);
+                using var tb = new SolidBrush(ColorTranslator.FromHtml("#bbbbbb"));
+                g.DrawString(label, fChip, tb, pill.X + S(4), pill.Y + S(1.5f));
+                // tam giác xổ xuống / thu lên
+                var tx = pill.Right - S(9); var ty = pill.Y + pill.Height / 2;
+                var tri = Expanded
+                    ? new[] { new PointF(tx - S(3), ty + S(1.5f)), new PointF(tx + S(3), ty + S(1.5f)), new PointF(tx, ty - S(2)) }
+                    : new[] { new PointF(tx - S(3), ty - S(1.5f)), new PointF(tx + S(3), ty - S(1.5f)), new PointF(tx, ty + S(2)) };
+                g.FillPolygon(tb, tri);
+                Hits.Add((pill, ToggleKey));
+            }
             y += S(20);
+            if (Expanded)
+            {
+                var rows = new List<(string key, string tag, Color tagColor, string name, string right)>
+                {
+                    (TotalKey, "∑", Theme.Text, "Tất cả phiên (tổng)", ""),
+                };
+                foreach (var e in d.Sessions)
+                    rows.Add((e.Key, e.Kind, e.Kind == "OMP" ? Theme.Purple : Theme.Blue, e.Name + (e.Legacy ? " (mod cũ)" : ""),
+                        (e.Percent != null ? $"{e.Percent}% · " : "") + (e.Tokens != null ? Fmt.Tok(e.Tokens.Value) : "")));
+                foreach (var row in rows)
+                {
+                    var rr = new RectangleF(P - S(4), y - S(2), iw + S(8), S(17));
+                    var on = row.key == (d.Selected?.Key ?? TotalKey);
+                    if (g != null)
+                    {
+                        if (on) { using var hb = new SolidBrush(Theme.Track); FillRounded(g, hb, rr, S(3)); }
+                        Hits.Add((rr, row.key));
+                    }
+                    Text(row.tag, fChip, row.tagColor, P, y + S(1.5f));
+                    var rightW = TextW(row.right, fMeta);
+                    var name = row.name;
+                    while (name.Length > 4 && TextW(name, fMeta) > iw - S(30) - rightW - S(6)) name = name[..^2] + "…";
+                    Text(name, fMeta, on ? Theme.Text : Theme.Dim, P + S(28), y);
+                    Text(row.right, fMeta, Theme.Dim, width - P, y, right: true);
+                    y += S(17);
+                }
+                y += S(6);
+            }
         }
 
         if (d == null)
@@ -221,30 +287,64 @@ internal static class Renderer
             y += S(28);
             Bar(g, P, y, iw, S(8), l.PercentUsed, Theme.BarColor(l.PercentUsed), new[] { 25.0, 50, 75 }, l.ExpectedPercent, null, scale);
             y += S(13);
-            var meta = new List<string>();
             TimeSpan? resetIn = l.ResetsAt != null ? l.ResetsAt.Value - now : null;
-            if (resetIn != null) meta.Add("reset " + Fmt.Dur(resetIn.Value));
-            if (l.RatePerUnit != null) meta.Add($"{l.RatePerUnit.Value.ToString(l.RatePerUnit < 10 ? "0.0" : "0")}%/{l.Unit}");
             var warn = l.FullInMs != null && resetIn != null && TimeSpan.FromMilliseconds(l.FullInMs.Value) < resetIn;
-            if (warn) meta.Add("đầy sau " + Fmt.Dur(TimeSpan.FromMilliseconds(l.FullInMs!.Value)));
+            // Mỗi mục kèm mức ưu tiên giữ lại (cao = giữ lâu nhất) khi dòng không đủ chỗ
+            var parts = new List<(string text, int keep)>();
+            if (resetIn != null)
+            {
+                parts.Add(("reset " + Fmt.Dur(resetIn.Value), 9));
+                parts.Add(("(" + Fmt.When(l.ResetsAt!.Value, now) + ")", 6));
+            }
+            if (warn) parts.Add(("đầy sau " + Fmt.Dur(TimeSpan.FromMilliseconds(l.FullInMs!.Value)), 8));
+            if (l.RatePerUnit != null) parts.Add(($"{l.RatePerUnit.Value.ToString(l.RatePerUnit < 10 ? "0.0" : "0")}%/{l.Unit}", 2));
             if (l.ExpectedPercent != null)
             {
                 var dd = (int)Math.Round(l.PercentUsed - l.ExpectedPercent.Value);
-                meta.Add($"{(dd >= 0 ? "+" : "")}{dd}% nhịp");
+                parts.Add(($"{(dd >= 0 ? "+" : "")}{dd}% nhịp", 4));
             }
-            // Không đủ chỗ thì bỏ bớt từ mục ít quan trọng nhất (tốc độ %/đơn vị đứng thứ 2)
-            var line = string.Join(" · ", meta);
-            while (meta.Count > 1 && TextW(line, fMeta) > iw)
+            string Join() => string.Join(" · ", parts.Select(p => p.text)).Replace(" · (", " (");
+            var line = Join();
+            while (parts.Count > 1 && TextW(line, fMeta) > iw)
             {
-                meta.RemoveAt(meta.Count > 2 ? 1 : meta.Count - 1);
-                line = string.Join(" · ", meta);
+                parts.RemoveAt(parts.IndexOf(parts.MinBy(p => p.keep)));
+                line = Join();
             }
             Text(line, fMeta, warn ? Theme.Orange : Theme.Dim, P, y);
             y += S(22) + extra;
         }
 
+        if (totalView)
+        {
+            Rule();
+            y += S(10);
+            Text("PHIÊN ĐANG CHẠY", fCaps, Theme.Dim, P, y + S(2));
+            y += S(18);
+            foreach (var e in d.Sessions)
+            {
+                var top = y;
+                Text(e.Kind, fChip, e.Kind == "OMP" ? Theme.Purple : Theme.Blue, P, y + S(1.5f));
+                var right = e.Percent != null ? $"{e.Percent}%" : "";
+                var sub = (e.Tokens != null ? Fmt.Tok(e.Tokens.Value) + (e.Window != null ? " / " + Fmt.Tok(e.Window.Value) : "") : "")
+                          + (e.Model != null ? " · " + Pretty(e.Model) : "") + (e.CostUsd != null ? " · " + Fmt.Usd(e.CostUsd.Value) : "");
+                var name = e.Name + (e.Legacy ? " (mod cũ)" : "");
+                while (name.Length > 4 && TextW(name, fMeta) > iw - S(28) - S(40)) name = name[..^2] + "…";
+                Text(name, fMeta, Theme.Text, P + S(28), y);
+                var hot = e.AutoCompactAt is > 0 && e.Tokens != null ? e.Tokens.Value / e.AutoCompactAt.Value * 100 : e.Percent ?? 0;
+                Text(right, fMeta, Theme.Heat(hot), width - P, y, right: true);
+                y += S(14);
+                double? flag = e.AutoCompactAt != null && e.Window is > 0 ? e.AutoCompactAt / e.Window * 100 : null;
+                Bar(g, P + S(28), y, iw - S(28), S(4), e.Percent ?? 0, e.Kind == "OMP" ? Theme.Purple : Theme.Blue, [], null, flag, scale);
+                y += S(8);
+                Text(sub, fMeta, Theme.Faint, P + S(28), y);
+                y += S(16);
+                if (g != null) Hits.Add((new RectangleF(P - S(4), top - S(2), iw + S(8), y - top), e.Key));
+            }
+            y += extra;
+        }
+
         // Context
-        if (d.Context?.Percent != null)
+        if (!totalView && d.Context?.Percent != null)
         {
             Rule();
             y += S(10);
@@ -261,7 +361,7 @@ internal static class Renderer
         }
 
         // Context phiên OMP gần nhất: thanh tím, vạch auto-compact theo ngưỡng của OMP
-        if (d.OmpContext is { } oc)
+        if (!totalView && d.OmpContext is { } oc)
         {
             Rule();
             y += S(10);
@@ -285,13 +385,23 @@ internal static class Renderer
         {
             Rule();
             y += S(10);
-            var tiles = new (string v, string l)[]
+            var tiles = new List<(string v, string l)>();
+            if (totalView)
             {
-                (Fmt.Usd(d.Cost.Session), "phiên"), (Fmt.Usd(d.Cost.PerHour), "/ giờ"),
-                (Fmt.Usd(d.Cost.Today), "hôm nay"), (Fmt.Usd(d.Cost.Week), "7 ngày"),
-            };
+                // Tổng: chi phí các phiên đang chạy (CC + OMP); hôm nay/7 ngày là sổ của mod (chỉ Claude Code)
+                tiles.Add((Fmt.Usd(d.Sessions.Sum(e => e.CostUsd ?? 0)), "đang chạy"));
+                tiles.Add((Fmt.Usd(d.Cost.Today), "hôm nay CC"));
+                tiles.Add((Fmt.Usd(d.Cost.Week), "7 ngày CC"));
+            }
+            else
+            {
+                tiles.Add((Fmt.Usd(d.Cost.Session), "phiên"));
+                tiles.Add((Fmt.Usd(d.Cost.PerHour), "/ giờ"));
+                if (!double.IsNaN(d.Cost.Today)) tiles.Add((Fmt.Usd(d.Cost.Today), "hôm nay"));
+                if (!double.IsNaN(d.Cost.Week)) tiles.Add((Fmt.Usd(d.Cost.Week), "7 ngày"));
+            }
             var tw = iw / 4;
-            for (var i = 0; i < tiles.Length; i++)
+            for (var i = 0; i < tiles.Count; i++)
             {
                 Text(tiles[i].v, fName, Theme.Text, P + i * tw, y);
                 Text(tiles[i].l, fMeta, Theme.Faint, P + i * tw, y + S(15));
@@ -299,8 +409,8 @@ internal static class Renderer
             y += S(36) + extra;
         }
 
-        // Model
-        if (d.Models.Count > 0)
+        // Model (chỉ khi xem một phiên, hoặc chưa có danh sách phiên)
+        if (!totalView && d.Models.Count > 0)
         {
             Rule();
             y += S(10);

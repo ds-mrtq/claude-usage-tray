@@ -15,6 +15,16 @@ public sealed class UsageData
     [JsonPropertyName("models")] public List<ModelInfo> Models { get; set; } = [];
     [JsonPropertyName("mainModel")] public string? MainModel { get; set; }
     [JsonPropertyName("mainEffort")] public string? MainEffort { get; set; }
+    [JsonPropertyName("sessionId")] public string? SessionId { get; set; }
+    // Chỉ có trong file theo phiên ~/.claude/usage-meter/sessions/<sid>.json
+    [JsonPropertyName("cwd")] public string? Cwd { get; set; }
+    [JsonPropertyName("endedAt")] public DateTimeOffset? EndedAt { get; set; }
+    [JsonPropertyName("heartbeatAt")] public DateTimeOffset? HeartbeatAt { get; set; }
+
+    /// <summary>Các phiên đang chạy (CC + OMP).</summary>
+    [JsonIgnore] public List<SessionEntry> Sessions { get; set; } = [];
+    /// <summary>Phiên đang xem; null = xem tổng.</summary>
+    [JsonIgnore] public SessionEntry? Selected { get; set; }
 
     /// <summary>Context của phiên OMP ghi gần nhất (không có trong file mod).</summary>
     [JsonIgnore] public OmpContextInfo? OmpContext { get; set; }
@@ -29,19 +39,37 @@ public sealed class UsageData
     /// Mỗi hạn mức lấy bản đo mới hơn; Tuần · Fable chỉ OMP có.
     /// Context, chi phí, model chỉ có từ phiên Claude Code.
     /// </summary>
-    public static UsageData? Load(string jsonPath, string? ompPath, DateTimeOffset now, ApiUsage.Result? api = null)
+    public static UsageData? Load(string jsonPath, string? ompPath, DateTimeOffset now, ApiUsage.Result? api = null, string? selectedKey = null)
     {
         var d = TryLoad(jsonPath);
+        var main = d == null ? null : TryLoad(jsonPath); // bản riêng để liệt kê phiên (d sẽ bị ghép/ghi đè)
         if (d != null) foreach (var l in d.Limits) l.At = d.MeasuredAt ?? d.WrittenAt;
         var omp = ompPath == null ? null : OmpUsage.TryLoad(ompPath, now);
         if (omp != null) d = Merge(d, "OMP", omp.RecordedAt, omp.Limits);
         // Lần làm mới bằng API (bấm nút) là bản đo mới nhất cho đến khi CC/OMP đo lại sau đó
         if (api != null) d = Merge(d, "API", api.RecordedAt, api.Limits);
-        var octx = ompPath == null ? null : OmpContextReader.TryLoad(Path.GetDirectoryName(ompPath)!);
-        if (octx != null)
+        var agentDir = ompPath == null ? null : Path.GetDirectoryName(ompPath);
+        var sessions = SessionList.List(jsonPath, main, agentDir, now);
+        var sel = selectedKey == null ? null : sessions.FirstOrDefault(e => e.Key == selectedKey);
+        if (sel != null || sessions.Count > 0)
+            d ??= new UsageData { Schema = 1, WrittenAt = sessions[0].At, MeasuredAt = sessions[0].At, Sources = "OMP" };
+        if (d != null)
         {
-            d ??= new UsageData { Schema = 1, WrittenAt = octx.At, MeasuredAt = octx.At, Sources = "OMP" };
-            d.OmpContext = octx;
+            d.Sessions = sessions;
+            d.Selected = sel;
+            if (sel?.Cc is { } cc)
+            {
+                // Hạn mức là của tài khoản (đã ghép mới nhất); context/chi phí/model lấy từ file của phiên đã chọn
+                d.Context = cc.Context; d.Cost = cc.Cost; d.Models = cc.Models; d.MainModel = cc.MainModel; d.MainEffort = cc.MainEffort;
+            }
+            else if (sel?.Omp is { } o)
+            {
+                d.Context = null; d.Models = []; d.MainModel = o.Model; d.MainEffort = null; d.OmpContext = o;
+                var hours = o.StartedAt is { } st ? (o.At - st).TotalHours : 0;
+                d.Cost = new CostInfo { Session = o.CostUsd, PerHour = hours > 0.05 ? o.CostUsd / hours : 0, Today = double.NaN, Week = double.NaN };
+            }
+            else if (sel == null && sessions.Count == 0 && agentDir != null && OmpContextReader.TryLoad(agentDir) is { } last)
+                d.OmpContext = last; // không có phiên nào đang chạy: vẫn hiện phiên OMP gần nhất như trước
         }
         // Nhãn nguồn chỉ kể nguồn còn đứng sau số đang hiện (CC luôn có khi có file mod: context, chi phí)
         if (d != null)

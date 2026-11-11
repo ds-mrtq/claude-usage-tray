@@ -1,6 +1,6 @@
 {
   "name": "usage-meter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pane luôn hiển thị hạn mức Claude (phiên 5 giờ, tuần, theo model) kèm token và chi phí quy ra USD",
   "types": "./types/index.d.ts",
   "author": {
