@@ -68,7 +68,15 @@ internal static class Renderer
     /// <summary>Chiều cao vùng header dùng để kéo bảng.</summary>
     public static float HeaderHeight(float scale) => 34 * scale;
 
-    public static bool CloseHover;
+    /// <summary>Nút phóng to tối đa, nằm bên trái nút đóng.</summary>
+    public static RectangleF MaxRect(int width, float scale) { var c = CloseRect(width, scale); return new(c.X - 18 * scale, c.Y, c.Width, c.Height); }
+
+    public enum HeaderButton { None, Max, Close }
+    public static HeaderButton Hover;
+    public static bool Maximized;
+
+    public static HeaderButton HitButton(Point p, int width, float scale) =>
+        CloseRect(width, scale).Contains(p) ? HeaderButton.Close : MaxRect(width, scale).Contains(p) ? HeaderButton.Max : HeaderButton.None;
 
     /// <summary>Vẽ bảng; g == null chỉ đo chiều cao. Đơn vị: pixel đã nhân scale DPI.</summary>
     public static int DrawPanel(Graphics? g, UsageData? d, int width, float scale, DateTimeOffset now)
@@ -120,14 +128,29 @@ internal static class Renderer
             g.FillEllipse(dot, P, y + S(3), S(8), S(8));
         }
         Text("CLAUDE USAGE", fCaps, Theme.Dim, P + S(13), y);
-        if (d != null) Text(Fmt.Ago(now - d.WrittenAt) + " trước · " + d.Sources, fMeta, now - d.WrittenAt > StaleAfter ? Theme.Orange : Theme.Faint, width - P - S(20), y, right: true);
+        if (d != null) Text(Fmt.Ago(now - d.WrittenAt) + " trước · " + d.Sources, fMeta, now - d.WrittenAt > StaleAfter ? Theme.Orange : Theme.Faint, width - P - S(38), y, right: true);
         if (g != null)
         {
+            var m = S(4);
+            // Nút phóng to tối đa / trả lại: ô vuông, hoặc hai ô chồng khi đang phóng to
+            var mr = MaxRect(width, scale);
+            if (Hover == HeaderButton.Max) { using var hb = new SolidBrush(Theme.Track); FillRounded(g, hb, mr, S(3)); }
+            using (var mp = new Pen(Hover == HeaderButton.Max ? Theme.Text : Theme.Dim, Math.Max(1, S(1.2f))))
+            {
+                if (Maximized)
+                {
+                    g.DrawRectangle(mp, mr.X + m + S(2), mr.Y + m - S(1), mr.Width - 2 * m - S(1), mr.Height - 2 * m - S(1));
+                    using var fill = new SolidBrush(Hover == HeaderButton.Max ? Theme.Track : Theme.Bg);
+                    var inner = new RectangleF(mr.X + m - S(1), mr.Y + m + S(1), mr.Width - 2 * m - S(1), mr.Height - 2 * m - S(1));
+                    g.FillRectangle(fill, inner);
+                    g.DrawRectangle(mp, inner.X, inner.Y, inner.Width, inner.Height);
+                }
+                else g.DrawRectangle(mp, mr.X + m, mr.Y + m, mr.Width - 2 * m, mr.Height - 2 * m);
+            }
             // Nút đóng: dấu x, sáng lên khi rê chuột
             var cr = CloseRect(width, scale);
-            if (CloseHover) { using var hb = new SolidBrush(Theme.Track); FillRounded(g, hb, cr, S(3)); }
-            using var xp = new Pen(CloseHover ? Theme.Text : Theme.Dim, Math.Max(1, S(1.4f)));
-            var m = S(4);
+            if (Hover == HeaderButton.Close) { using var hb = new SolidBrush(Theme.Track); FillRounded(g, hb, cr, S(3)); }
+            using var xp = new Pen(Hover == HeaderButton.Close ? Theme.Text : Theme.Dim, Math.Max(1, S(1.4f)));
             g.DrawLine(xp, cr.X + m, cr.Y + m, cr.Right - m, cr.Bottom - m);
             g.DrawLine(xp, cr.Right - m, cr.Y + m, cr.X + m, cr.Bottom - m);
         }
