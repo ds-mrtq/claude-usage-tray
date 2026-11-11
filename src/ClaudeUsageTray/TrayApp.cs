@@ -22,7 +22,9 @@ internal sealed class TrayApp : ApplicationContext
     private readonly System.Windows.Forms.Timer _clearStatus = new() { Interval = 8000 };
     private IntPtr _hIcon;
 
-    public TrayApp(string path, string? ompPath)
+    private readonly RegisteredWaitHandle? _showWait;
+
+    public TrayApp(string path, string? ompPath, EventWaitHandle? showEvent = null, bool showNow = false)
     {
         _path = path;
         _ompPath = ompPath;
@@ -74,6 +76,13 @@ internal sealed class TrayApp : ApplicationContext
         _tick.Tick += (_, _) => Reload(); // vẽ lại đếm ngược reset và trạng thái "cũ"
         _tick.Start();
         Reload();
+
+        // Lần chạy thứ hai (shortcut, chạy lại exe) báo qua event: mở bảng
+        if (showEvent != null)
+            _showWait = ThreadPool.RegisterWaitForSingleObject(showEvent,
+                (_, _) => _popup.BeginInvoke(() => { Log.Write("Show requested by another launch"); _popup.ShowNearTray(); }),
+                null, Timeout.Infinite, executeOnlyOnce: false);
+        if (showNow) _popup.BeginInvoke(_popup.ShowNearTray);
     }
 
     // FileSystemWatcher bắn sự kiện trên thread khác: đẩy về UI thread qua handle của popup
@@ -133,6 +142,7 @@ internal sealed class TrayApp : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _showWait?.Unregister(null);
         _icon.Visible = false;
         _icon.Dispose();
         _watcher?.Dispose();

@@ -10,6 +10,7 @@
     <AssemblyName>ClaudeUsageTray</AssemblyName>
     <RootNamespace>ClaudeUsageTray</RootNamespace>
     <Version>0.1.0</Version>
+    <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>
