@@ -1,5 +1,8 @@
 using System.Runtime.InteropServices;
 
+// Chỉ nạp DLL hệ thống từ System32, không tìm cạnh exe hay thư mục hiện hành (chặn DLL giả cài cạnh app)
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+
 namespace ClaudeUsageTray;
 
 /// <summary>
