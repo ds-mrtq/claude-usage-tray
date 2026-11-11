@@ -11,7 +11,28 @@ Header ghi nguồn đang dùng (CC, OMP, CC+OMP); dòng lấy từ OMP có nhãn
 - Mantis: (không có)
 - Hướng dẫn cho agent: `AGENTS.md`
 
-## Dùng
+## Thành phần
+
+| Thư mục | Là gì |
+|---|---|
+| `mod/usage-meter` | Mod Claude Code: pane hạn mức trong Claude Code (desktop vẽ SVG, terminal/VS Code/mobile dạng chữ), lệnh `/usage-pane`, tool `snapshot`; ghi `~/.claude/usage-meter.json` sau mỗi lượt |
+| `src/ClaudeUsageTray` | App khay Windows đọc file JSON trên và hạn mức của OMP |
+| `.claude-plugin/marketplace.json` | Marketplace để cài mod từ repo này |
+
+## Cài mod usage-meter
+
+Trong Claude Code:
+
+```
+/plugin marketplace add ds-mrtq/claude-usage-tray
+/plugin install usage-meter@claude-usage-tray
+```
+
+Hoặc từ bản clone: `claude plugin marketplace add <thư mục repo>` rồi `claude plugin install usage-meter@claude-usage-tray --scope user`. Phiên đang mở chạy `/reload-plugins` để nạp. Test: `claude plugin test mod/usage-meter`.
+
+Ý nghĩa các ô chi phí: **phiên** là chi phí lần chạy hiện tại của phiên (app báo cộng dồn từ lúc tiến trình khởi động); **/ giờ** = phiên chia thời gian chạy; **hôm nay** và **7 ngày** cộng mọi phiên Claude Code theo ngày giờ máy. Luôn có hôm nay ≥ phần của phiên hiện tại trong ngày và 7 ngày ≥ hôm nay; "/ giờ" là tốc độ nên có thể lớn hơn "hôm nay" khi phiên mới chạy chưa tới một giờ. Sổ chi phí lưu trong kho của mod, gắn với nguồn cài: đổi marketplace thì lịch sử ngày bắt đầu lại.
+
+## Dùng app khay
 
 1. Build: `dotnet build src/ClaudeUsageTray -c Release -nologo`
 2. Chạy `src/ClaudeUsageTray/bin/Release/net9.0-windows/ClaudeUsageTray.exe`. Windows 11 đặt icon mới vào vùng ẩn (mũi tên ^); kéo icon ra thanh taskbar để luôn thấy.
@@ -28,3 +49,4 @@ Màu số trên icon: vàng < 65%, cam ≥ 65%, đỏ ≥ 85%; "!!" khi 100%, "-
 - 2026-11-11: Chỉ nạp winsqlite3.dll từ System32. Lưu vị trí/cỡ/trạng thái phóng to vào `window.json`; kéo viền đổi cỡ (zoom 0.6–4, giữ tỉ lệ); nút phóng to tối đa. Smoke bằng chuột thật có chặn bấm nhầm.
 - 2026-11-11: Rà thông tin cá nhân trước khi công khai: ghi lại lịch sử bằng email noreply GitHub, bỏ tên người dùng và đường dẫn hồ sơ Windows khỏi tài liệu. Tạo repo công khai https://github.com/ds-mrtq/claude-usage-tray và push nhánh main.
 - 2026-11-11: Sửa phóng to trên màn hình phụ dựng dọc (trước chỉ cao 1041/1392 vì giữ tỉ lệ): nay chiếm trọn vùng làm việc, giãn khoảng dọc giữa các mục. Kéo khi đang phóng to thì trả về cỡ thường dưới con trỏ.
+- 2026-11-11: Thêm LICENSE MIT. Đưa mod usage-meter vào `mod/usage-meter` (bản 0.2.0), marketplace `claude-usage-tray` ở gốc repo; cài lại mod từ repo thay cho bản ở `~/.claude/mods`. Sửa sổ chi phí: "hôm nay" từng nhỏ hơn "phiên" ($14.64 so với $27.07) vì sổ cộng dồn delta theo mốc lần đo trước, mốc này sống sót qua lần cài lại còn kho lưu thì trống nên hụt $12.43 đầu phiên. Nay mỗi lần chạy (phiên + startedAt) ghi thẳng chi phí trong ngày = chi phí hiện tại − mốc đầu ngày; thêm test.

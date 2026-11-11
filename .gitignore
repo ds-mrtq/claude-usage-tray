@@ -17,3 +17,7 @@ nul
 bin/
 obj/
 *.user
+
+# mod: kiểu do engine Claude Code sinh (có danh sách MCP của máy)
+mod/usage-meter/.claude-plugin/types/
+node_modules/

@@ -1,0 +1,13 @@
+{
+  "name": "claude-usage-tray",
+  "owner": {
+    "name": "ds-mrtq"
+  },
+  "plugins": [
+    {
+      "name": "usage-meter",
+      "source": "./mod/usage-meter",
+      "description": "Pane hạn mức Claude Code (5 giờ, tuần), context so với mốc auto-compact, chi phí quy ra $; ghi ~/.claude/usage-meter.json cho app khay"
+    }
+  ]
+}
