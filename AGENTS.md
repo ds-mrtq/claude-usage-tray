@@ -8,6 +8,7 @@ Luật chung nằm ở `~/.omp/agent/AGENTS.md`, không chép lại ở đây. F
 - Người dùng / đơn vị: chủ máy, Windows 11
 - Hệ thống liên quan: mod Claude Code `usage-meter` (`%USERPROFILE%\.claude\mods\usage-meter`, ngoài repo) ghi `%USERPROFILE%\.claude\usage-meter.json`; app này chỉ đọc file đó
 - Mã nguồn: C# .NET 9 WinForms, `src/ClaudeUsageTray`
+- GitHub: https://github.com/ds-mrtq/claude-usage-tray (công khai). Repo công khai: không ghi tên thật, email, đường dẫn `C:\Users\<tên>`, tên công ty/hệ thống nội bộ vào file hay message commit; commit bằng email noreply đã đặt trong `git config` của repo
 
 ## Facts
 

@@ -26,4 +26,5 @@ Màu số trên icon: vàng < 65%, cam ≥ 65%, đỏ ≥ 85%; "!!" khi 100%, "-
 - 2026-11-11: Bật chạy cùng Windows (HKCU Run, trỏ exe bản Release trong repo).
 - 2026-11-11: Bảng thành overlay ghim (không tự ẩn, nút x, kéo header, tự hiện lại khi bị thu nhỏ hay bị đẩy xuống). Thêm nguồn OMP từ `~/.omp/agent/agent.db` (`usage_history`), có thêm dòng Tuần · Fable; tham số `--omp <đường dẫn | none>`.
 - 2026-11-11: Chỉ nạp winsqlite3.dll từ System32. Lưu vị trí/cỡ/trạng thái phóng to vào `window.json`; kéo viền đổi cỡ (zoom 0.6–4, giữ tỉ lệ); nút phóng to tối đa. Smoke bằng chuột thật có chặn bấm nhầm.
+- 2026-11-11: Rà thông tin cá nhân trước khi công khai: ghi lại lịch sử bằng email noreply GitHub, bỏ tên người dùng và đường dẫn hồ sơ Windows khỏi tài liệu. Tạo repo công khai https://github.com/ds-mrtq/claude-usage-tray và push nhánh main.
 - 2026-11-11: Sửa phóng to trên màn hình phụ dựng dọc (trước chỉ cao 1041/1392 vì giữ tỉ lệ): nay chiếm trọn vùng làm việc, giãn khoảng dọc giữa các mục. Kéo khi đang phóng to thì trả về cỡ thường dưới con trỏ.
