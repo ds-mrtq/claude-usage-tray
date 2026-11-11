@@ -1,0 +1,19 @@
+# scratch cua agent / cong cu
+.remember/
+.omc/
+.omx/
+.superpowers/
+.playwright-mcp/
+.ebsverify/
+__pycache__/
+
+# rac Office / Windows
+~$*
+Thumbs.db
+desktop.ini
+nul
+
+# build .NET
+bin/
+obj/
+*.user
