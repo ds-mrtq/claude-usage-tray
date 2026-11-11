@@ -16,6 +16,9 @@ public sealed class UsageData
     [JsonPropertyName("mainModel")] public string? MainModel { get; set; }
     [JsonPropertyName("mainEffort")] public string? MainEffort { get; set; }
 
+    /// <summary>Context của phiên OMP ghi gần nhất (không có trong file mod).</summary>
+    [JsonIgnore] public OmpContextInfo? OmpContext { get; set; }
+
     public LimitInfo? FiveHour => Limits.FirstOrDefault(l => l.Kind == "five_hour");
 
     /// <summary>Nguồn đã ghép: "CC" (mod Claude Code), "OMP", hoặc cả hai.</summary>
@@ -34,6 +37,12 @@ public sealed class UsageData
         if (omp != null) d = Merge(d, "OMP", omp.RecordedAt, omp.Limits);
         // Lần làm mới bằng API (bấm nút) là bản đo mới nhất cho đến khi CC/OMP đo lại sau đó
         if (api != null) d = Merge(d, "API", api.RecordedAt, api.Limits);
+        var octx = ompPath == null ? null : OmpContextReader.TryLoad(Path.GetDirectoryName(ompPath)!);
+        if (octx != null)
+        {
+            d ??= new UsageData { Schema = 1, WrittenAt = octx.At, MeasuredAt = octx.At, Sources = "OMP" };
+            d.OmpContext = octx;
+        }
         // Nhãn nguồn chỉ kể nguồn còn đứng sau số đang hiện (CC luôn có khi có file mod: context, chi phí)
         if (d != null)
         {

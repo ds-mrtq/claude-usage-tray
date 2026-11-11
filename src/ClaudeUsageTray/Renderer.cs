@@ -100,7 +100,7 @@ internal static class Renderer
         if (stretchTo > 0 && d != null)
         {
             var natural = DrawPanel(null, d, width, scale, now);
-            var gaps = d.Limits.Count + (d.Context?.Percent != null ? 1 : 0) + (d.Cost != null ? 1 : 0);
+            var gaps = d.Limits.Count + (d.Context?.Percent != null ? 1 : 0) + (d.OmpContext != null ? 1 : 0) + (d.Cost != null ? 1 : 0);
             if (gaps > 0 && stretchTo > natural) extra = (stretchTo - natural) / gaps;
         }
 
@@ -257,6 +257,26 @@ internal static class Renderer
             y += S(11);
             Text($"{Fmt.Tok(d.Context.Tokens ?? 0)} / {Fmt.Tok(d.Context.Window)}", fMeta, Theme.Dim, P, y);
             if (d.Context.AutoCompactAt != null) Text("auto-compact " + Fmt.Tok(d.Context.AutoCompactAt.Value), fMeta, Theme.Orange, width - P, y, right: true);
+            y += S(20) + extra;
+        }
+
+        // Context phiên OMP gần nhất: thanh tím, vạch auto-compact theo ngưỡng của OMP
+        if (d.OmpContext is { } oc)
+        {
+            Rule();
+            y += S(10);
+            var op = oc.Percent;
+            Text("CONTEXT · OMP", fCaps, Theme.Dim, P, y + S(2));
+            Text(Math.Round(op) + "%", fMid, Theme.Heat(oc.AutoCompactAt > 0 ? oc.Tokens / oc.AutoCompactAt * 100 : op), width - P + S(3), y - S(2), right: true);
+            y += S(20);
+            Bar(g, P, y, iw, S(6), op, oc.Tokens >= oc.AutoCompactAt * 0.95 ? Theme.Red : Theme.Purple, [], null, oc.AutoCompactAt / oc.Window * 100, scale);
+            y += S(11);
+            Text($"{Fmt.Tok(oc.Tokens)} / {Fmt.Tok(oc.Window)}", fMeta, Theme.Dim, P, y);
+            Text("auto-compact " + Fmt.Tok(oc.AutoCompactAt), fMeta, Theme.Orange, width - P, y, right: true);
+            y += S(13);
+            var info = Fmt.Ago(now - oc.At) + " trước" + (oc.Title is { Length: > 0 } t ? " · " + t : "");
+            while (info.Length > 8 && TextW(info, fMeta) > iw) info = info[..^2] + "…";
+            Text(info, fMeta, now - oc.At > StaleAfter ? Theme.Faint : Theme.Dim, P, y);
             y += S(20) + extra;
         }
 

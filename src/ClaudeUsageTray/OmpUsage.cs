@@ -75,6 +75,29 @@ public static class OmpUsage
         }
     }
 
+    /// <summary>Chạy một truy vấn chỉ-đọc, trả cột text đầu tiên của dòng đầu (hoặc null).</summary>
+    public static string? ScalarText(string path, string sql)
+    {
+        if (!File.Exists(path)) return null;
+        IntPtr db = IntPtr.Zero, st = IntPtr.Zero;
+        try
+        {
+            if (sqlite3_open_v2(path, out db, SQLITE_OPEN_READONLY, IntPtr.Zero) != 0) return null;
+            sqlite3_busy_timeout(db, 500);
+            if (sqlite3_prepare_v2(db, sql, -1, out st, IntPtr.Zero) != 0) return null;
+            return sqlite3_step(st) == SQLITE_ROW ? Str(st, 0) : null;
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (st != IntPtr.Zero) sqlite3_finalize(st);
+            if (db != IntPtr.Zero) sqlite3_close(db);
+        }
+    }
+
     private static (string kind, string label, TimeSpan? window) Map(string id, string label) => id switch
     {
         "anthropic:5h" => ("five_hour", "PHIÊN 5 GIỜ", TimeSpan.FromHours(5)),
