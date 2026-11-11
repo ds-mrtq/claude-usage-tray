@@ -105,16 +105,19 @@ internal sealed class PopupForm : Form
         Size = new Size(w, h);
     }
 
-    /// <summary>Phóng nội dung cho vừa chiều cao vùng làm việc của màn hình đang chứa bảng, đặt giữa theo chiều ngang.</summary>
+    /// <summary>
+    /// Chiếm trọn vùng làm việc của màn hình đang chứa bảng (kể cả màn hình phụ dựng dọc).
+    /// Chữ phóng theo chiều còn hẹp hơn; dư ngang thì thanh dài ra, dư dọc thì giãn khoảng giữa các mục.
+    /// </summary>
     private void FitMaximized()
     {
         var wa = (Visible || _userMoved ? Screen.FromRectangle(Bounds) : Screen.FromPoint(Cursor.Position)).WorkingArea;
         var m = Margin_;
-        var z = Math.Min((wa.Height - 2f * m) / ContentHeight(1f), (wa.Width - 2f * m) / (BaseWidth * DpiScale));
+        var w = wa.Width - 2 * m;
+        var h = wa.Height - 2 * m;
+        var z = Math.Min(h / (float)ContentHeight(1f), w / (BaseWidth * DpiScale));
         _zoom = Math.Clamp(z, MinZoom, 8f);
-        var w = (int)(BaseWidth * Scale_);
-        var h = ContentHeight(_zoom);
-        Bounds = new Rectangle(wa.Left + (wa.Width - w) / 2, wa.Top + m, w, h);
+        Bounds = new Rectangle(wa.Left + m, wa.Top + m, w, h);
     }
 
     private void ToggleMaximize()
@@ -163,7 +166,7 @@ internal sealed class PopupForm : Form
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        Renderer.DrawPanel(e.Graphics, _data, Width, Scale_, DateTimeOffset.Now);
+        Renderer.DrawPanel(e.Graphics, _data, Width, Scale_, DateTimeOffset.Now, Renderer.Maximized ? Height : 0);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -194,6 +197,21 @@ internal sealed class PopupForm : Form
         }
         if (e.Y < Renderer.HeaderHeight(Scale_))
         {
+            if (Renderer.Maximized)
+            {
+                // Kéo khi đang phóng to: trả về cỡ thường ngay dưới con trỏ rồi kéo tiếp (như cửa sổ Windows)
+                var relX = e.X / (float)Width;
+                var oldScale = Scale_;
+                Renderer.Maximized = false;
+                _zoom = Math.Clamp(_s.RestoreZoom, MinZoom, MaxZoom);
+                var w = (int)(BaseWidth * Scale_);
+                var h = ContentHeight(_zoom);
+                var cur = Cursor.Position;
+                Bounds = new Rectangle(cur.X - (int)(relX * w), cur.Y - (int)(e.Y * Scale_ / oldScale), w, h);
+                Invalidate();
+                Update();
+                Log.Write($"Drag from maximized: restored to {Bounds}");
+            }
             // Kéo bảng bằng header: giao cho Windows xử lý như kéo thanh tiêu đề (lưu ở WM_EXITSIZEMOVE)
             ReleaseCapture();
             SendMessage(Handle, 0xA1 /* WM_NCLBUTTONDOWN */, 2 /* HTCAPTION */, 0);

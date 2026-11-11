@@ -79,12 +79,20 @@ internal static class Renderer
         CloseRect(width, scale).Contains(p) ? HeaderButton.Close : MaxRect(width, scale).Contains(p) ? HeaderButton.Max : HeaderButton.None;
 
     /// <summary>Vẽ bảng; g == null chỉ đo chiều cao. Đơn vị: pixel đã nhân scale DPI.</summary>
-    public static int DrawPanel(Graphics? g, UsageData? d, int width, float scale, DateTimeOffset now)
+    public static int DrawPanel(Graphics? g, UsageData? d, int width, float scale, DateTimeOffset now, int stretchTo = 0)
     {
         float S(float v) => v * scale;
         var P = S(16);
         var iw = width - P * 2;
         float y = P;
+        // Phóng to tối đa: chia đều khoảng dư theo chiều dọc vào giữa các mục để bảng lấp đầy màn hình
+        float extra = 0;
+        if (stretchTo > 0 && d != null)
+        {
+            var natural = DrawPanel(null, d, width, scale, now);
+            var gaps = d.Limits.Count + (d.Context?.Percent != null ? 1 : 0) + (d.Cost != null ? 1 : 0);
+            if (gaps > 0 && stretchTo > natural) extra = (stretchTo - natural) / gaps;
+        }
 
         using var fCaps = Theme.Mono(S(8.5f), FontStyle.Bold);
         using var fMeta = Theme.Mono(S(8f));
@@ -197,7 +205,7 @@ internal static class Renderer
                 line = string.Join(" · ", meta);
             }
             Text(line, fMeta, warn ? Theme.Orange : Theme.Dim, P, y);
-            y += S(22);
+            y += S(22) + extra;
         }
 
         // Context
@@ -214,7 +222,7 @@ internal static class Renderer
             y += S(11);
             Text($"{Fmt.Tok(d.Context.Tokens ?? 0)} / {Fmt.Tok(d.Context.Window)}", fMeta, Theme.Dim, P, y);
             if (d.Context.AutoCompactAt != null) Text("auto-compact " + Fmt.Tok(d.Context.AutoCompactAt.Value), fMeta, Theme.Orange, width - P, y, right: true);
-            y += S(20);
+            y += S(20) + extra;
         }
 
         // Chi phí
@@ -233,7 +241,7 @@ internal static class Renderer
                 Text(tiles[i].v, fName, Theme.Text, P + i * tw, y);
                 Text(tiles[i].l, fMeta, Theme.Faint, P + i * tw, y + S(15));
             }
-            y += S(36);
+            y += S(36) + extra;
         }
 
         // Model
