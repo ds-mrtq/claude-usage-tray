@@ -9,6 +9,8 @@ internal sealed class TrayApp : ApplicationContext
     private const string RunName = "ClaudeUsageTray";
 
     private readonly string _path;
+    private readonly string? _ompPath;
+    private readonly FileSystemWatcher? _ompWatcher;
     private readonly NotifyIcon _icon;
     private readonly PopupForm _popup = new();
     private readonly FileSystemWatcher? _watcher;
@@ -18,9 +20,10 @@ internal sealed class TrayApp : ApplicationContext
     private UsageData? _data;
     private IntPtr _hIcon;
 
-    public TrayApp(string path)
+    public TrayApp(string path, string? ompPath)
     {
         _path = path;
+        _ompPath = ompPath;
         _ = _popup.Handle; // tạo handle sớm để BeginInvoke từ thread của FileSystemWatcher
         _startup = new ToolStripMenuItem("Chạy cùng Windows", null, (_, _) => ToggleStartup()) { Checked = IsStartupEnabled() };
         var menu = new ContextMenuStrip();
@@ -35,7 +38,7 @@ internal sealed class TrayApp : ApplicationContext
         {
             Log.Write($"MouseClick {e.Button} visible={_popup.Visible}");
             if (e.Button != MouseButtons.Left) return;
-            if (_popup.Visible) _popup.Hide(); else _popup.ShowNearTray();
+            if (_popup.Visible) _popup.HidePanel("icon khay"); else _popup.ShowNearTray();
         };
 
         var dir = Path.GetDirectoryName(path)!;
@@ -50,6 +53,17 @@ internal sealed class TrayApp : ApplicationContext
             _watcher.Created += (_, _) => Kick();
             _watcher.Renamed += (_, _) => Kick();
         }
+        // OMP ghi hạn mức vào agent.db (chế độ WAL nên file -wal đổi trước)
+        var ompDir = ompPath == null ? null : Path.GetDirectoryName(ompPath);
+        if (ompDir != null && Directory.Exists(ompDir))
+        {
+            _ompWatcher = new FileSystemWatcher(ompDir, Path.GetFileName(ompPath) + "*")
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+                EnableRaisingEvents = true,
+            };
+            _ompWatcher.Changed += (_, _) => Kick();
+        }
         _debounce.Tick += (_, _) => { _debounce.Stop(); Reload(); };
         _tick.Tick += (_, _) => Reload(); // vẽ lại đếm ngược reset và trạng thái "cũ"
         _tick.Start();
@@ -61,8 +75,8 @@ internal sealed class TrayApp : ApplicationContext
 
     private void Reload()
     {
-        _data = UsageData.TryLoad(_path) ?? _data;
         var now = DateTimeOffset.Now;
+        _data = UsageData.Load(_path, _ompPath, now) ?? _data;
         var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
         using var bmp = Renderer.DrawIcon(_data, size, now);
         var h = bmp.GetHicon();
@@ -99,6 +113,7 @@ internal sealed class TrayApp : ApplicationContext
         _icon.Visible = false;
         _icon.Dispose();
         _watcher?.Dispose();
+        _ompWatcher?.Dispose();
         _tick.Dispose();
         _debounce.Dispose();
         _popup.Dispose();

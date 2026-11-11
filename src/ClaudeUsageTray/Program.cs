@@ -3,30 +3,32 @@ namespace ClaudeUsageTray;
 internal static class Program
 {
     /// <summary>
-    /// Chạy: ClaudeUsageTray.exe [--data &lt;file json&gt;]
+    /// Chạy: ClaudeUsageTray.exe [--data &lt;file json&gt;] [--omp &lt;agent.db của OMP | none&gt;]
     /// Kiểm tra không cần giao diện: --render &lt;thư mục&gt; xuất panel.png và icon.png rồi thoát.
     /// </summary>
     [STAThread]
     private static int Main(string[] args)
     {
         var path = Arg(args, "--data") ?? UsageData.DefaultPath;
+        var omp = Arg(args, "--omp") ?? OmpUsage.DefaultPath;
+        if (omp == "none") omp = null;
 
         var renderDir = Arg(args, "--render");
-        if (renderDir != null) return RenderToFiles(path, renderDir);
+        if (renderDir != null) return RenderToFiles(path, omp, renderDir);
 
         using var mutex = new Mutex(true, @"Local\ClaudeUsageTray", out var isNew);
         if (!isNew) return 0; // đã có một bản đang chạy
 
         ApplicationConfiguration.Initialize();
-        Application.Run(new TrayApp(path));
+        Application.Run(new TrayApp(path, omp));
         return 0;
     }
 
-    private static int RenderToFiles(string path, string dir)
+    private static int RenderToFiles(string path, string? omp, string dir)
     {
         Directory.CreateDirectory(dir);
-        var d = UsageData.TryLoad(path);
         var now = DateTimeOffset.Now;
+        var d = UsageData.Load(path, omp, now);
         const float scale = 1.5f;
         var w = (int)(340 * scale);
         var h = Renderer.DrawPanel(null, d, w, scale, now);

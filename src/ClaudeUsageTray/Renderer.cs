@@ -46,11 +46,11 @@ internal static class Renderer
 
     public static string Tooltip(UsageData? d, DateTimeOffset now)
     {
-        if (d == null) return "Claude Usage: chưa có dữ liệu (mở một phiên Claude Code)";
+        if (d == null) return "Claude Usage: chưa có dữ liệu (mở một phiên Claude Code hoặc OMP)";
         var parts = new List<string>();
         foreach (var l in d.Limits)
         {
-            var name = l.Kind == "five_hour" ? "5h" : l.Kind == "seven_day" ? "7d" : l.Label;
+            var name = l.Kind switch { "five_hour" => "5h", "seven_day" => "7d", "seven_day_fable" => "Fable", "extra" => "Extra", _ => l.Label };
             parts.Add($"{name} {Math.Round(l.PercentUsed)}%");
         }
         var five = d.FiveHour;
@@ -62,6 +62,14 @@ internal static class Renderer
     }
 
     // ---------------- Bảng chi tiết ----------------
+    /// <summary>Vùng nút đóng ở góc phải header (pixel đã nhân scale).</summary>
+    public static RectangleF CloseRect(int width, float scale) => new(width - 16 * scale - 14 * scale, 13 * scale, 14 * scale, 14 * scale);
+
+    /// <summary>Chiều cao vùng header dùng để kéo bảng.</summary>
+    public static float HeaderHeight(float scale) => 34 * scale;
+
+    public static bool CloseHover;
+
     /// <summary>Vẽ bảng; g == null chỉ đo chiều cao. Đơn vị: pixel đã nhân scale DPI.</summary>
     public static int DrawPanel(Graphics? g, UsageData? d, int width, float scale, DateTimeOffset now)
     {
@@ -112,7 +120,17 @@ internal static class Renderer
             g.FillEllipse(dot, P, y + S(3), S(8), S(8));
         }
         Text("CLAUDE USAGE", fCaps, Theme.Dim, P + S(13), y);
-        if (d != null) Text(Fmt.Ago(now - d.WrittenAt) + " trước", fMeta, now - d.WrittenAt > StaleAfter ? Theme.Orange : Theme.Faint, width - P, y, right: true);
+        if (d != null) Text(Fmt.Ago(now - d.WrittenAt) + " trước · " + d.Sources, fMeta, now - d.WrittenAt > StaleAfter ? Theme.Orange : Theme.Faint, width - P - S(20), y, right: true);
+        if (g != null)
+        {
+            // Nút đóng: dấu x, sáng lên khi rê chuột
+            var cr = CloseRect(width, scale);
+            if (CloseHover) { using var hb = new SolidBrush(Theme.Track); FillRounded(g, hb, cr, S(3)); }
+            using var xp = new Pen(CloseHover ? Theme.Text : Theme.Dim, Math.Max(1, S(1.4f)));
+            var m = S(4);
+            g.DrawLine(xp, cr.X + m, cr.Y + m, cr.Right - m, cr.Bottom - m);
+            g.DrawLine(xp, cr.Right - m, cr.Y + m, cr.X + m, cr.Bottom - m);
+        }
         y += S(20);
         if (d?.MainModel != null)
         {
@@ -124,7 +142,7 @@ internal static class Renderer
         if (d == null)
         {
             Text("Chưa có dữ liệu.", fMeta, Theme.Dim, P, y);
-            Text("Mở một phiên Claude Code có mod usage-meter.", fMeta, Theme.Faint, P, y + S(14));
+            Text("Mở một phiên Claude Code hoặc OMP.", fMeta, Theme.Faint, P, y + S(14));
             return (int)(y + S(34) + P);
         }
 
@@ -132,6 +150,7 @@ internal static class Renderer
         foreach (var l in d.Limits)
         {
             Text(l.Label, fCaps, Theme.Dim, P, y + S(8));
+            if (d.Sources == "CC+OMP" && l.Source == "OMP") Text("omp", fMeta, Theme.Purple, P + TextW(l.Label, fCaps) + S(4), y + S(8));
             Text(Math.Round(l.PercentUsed) + "%", fBig, Theme.Heat(l.PercentUsed), width - P + S(4), y - S(2), right: true);
             y += S(28);
             Bar(g, P, y, iw, S(8), l.PercentUsed, Theme.BarColor(l.PercentUsed), new[] { 25.0, 50, 75 }, l.ExpectedPercent, null, scale);
