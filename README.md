@@ -18,3 +18,4 @@ Màu số trên icon: vàng < 65%, cam ≥ 65%, đỏ ≥ 85%; "!!" khi 100%, "-
 ## Nhật ký
 
 - 2026-11-11: Tạo repo. Viết app tray C# .NET 9 WinForms (icon vẽ GDI+, bảng popup Darcula, FileSystemWatcher + debounce 300ms, làm mới 30s, HKCU Run). Smoke GUI bằng chuột thật trên máy anh: bảng hiện đúng số trong JSON, bấm ra ngoài thì ẩn. Thêm log chẩn đoán bật bằng `CLAUDE_USAGE_TRAY_LOG=1`, bỏ qua mất focus trong 400ms đầu sau khi hiện bảng.
+- 2026-11-11: Bật chạy cùng Windows (HKCU Run, trỏ exe bản Release trong repo).

@@ -19,7 +19,7 @@ Trạng thái hiện hành của repo, tối đa 15 dòng; chi tiết và lịch
 - [active] Không có Weekly·Fable và usage credits: API mod chỉ có five_hour, seven_day | as_of 2026-11-11 | đối chiếu get_usage của app với snapshot mod | tin cậy 1
 - [active] Phiên OMP không ghi file (OMP không nạp mod Claude Code); số chỉ cập nhật khi có phiên Claude Code chạy | as_of 2026-11-11 | suy luận từ cơ chế mod | tin cậy 2
 - [active] Smoke GUI PASS: bấm chuột thật vào icon khay → bảng hiện tại (2210,1043) 340x339, số khớp JSON; bấm ra ngoài → ẩn | as_of 2026-11-11 | %TEMP%\ClaudeUsageTray.log + ảnh chụp vùng màn hình | tin cậy 1
-- [open] Chưa bật "Chạy cùng Windows" (menu chuột phải icon) | as_of 2026-11-11 | HKCU Run chưa có giá trị ClaudeUsageTray | tin cậy 1
+- [active] Đã bật chạy cùng Windows: HKCU\Software\Microsoft\Windows\CurrentVersion\Run, giá trị ClaudeUsageTray trỏ tới exe bản Release trong repo; build lại khi app đang chạy sẽ lỗi khoá file, phải Thoát app trước | as_of 2026-11-11 | đọc lại registry sau khi ghi | tin cậy 1
 
 ## Chạy và kiểm chứng
 
