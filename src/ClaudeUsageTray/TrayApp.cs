@@ -28,6 +28,7 @@ internal sealed class TrayApp : ApplicationContext
         _startup = new ToolStripMenuItem("Chạy cùng Windows", null, (_, _) => ToggleStartup()) { Checked = IsStartupEnabled() };
         var menu = new ContextMenuStrip();
         menu.Items.Add("Mở bảng", null, (_, _) => _popup.ShowNearTray());
+        menu.Items.Add("Đặt lại vị trí và cỡ", null, (_, _) => _popup.ResetLayout());
         menu.Items.Add(_startup);
         menu.Items.Add("Mở thư mục dữ liệu", null, (_, _) => OpenDataFolder());
         menu.Items.Add(new ToolStripSeparator());

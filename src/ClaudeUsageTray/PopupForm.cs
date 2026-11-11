@@ -85,6 +85,21 @@ internal sealed class PopupForm : Form
         Log.Write($"Shown at {Location} size {Size} zoom {_zoom:0.00} max={Renderer.Maximized}");
     }
 
+    /// <summary>Quên vị trí/cỡ/phóng to đã lưu, đưa bảng về cỡ gốc ở góc khay như lần mở đầu tiên.</summary>
+    public void ResetLayout()
+    {
+        _zoom = 1f;
+        Renderer.Maximized = false;
+        _userMoved = false;
+        _s.X = _s.Y = _s.RestoreX = _s.RestoreY = null;
+        _s.Zoom = _s.RestoreZoom = 1f;
+        _s.Maximized = false;
+        _s.Save();
+        Log.Write("Layout reset");
+        ShowNearTray();
+        Invalidate();
+    }
+
     public void HidePanel(string why)
     {
         _pinned = false;
