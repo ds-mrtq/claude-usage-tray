@@ -10,7 +10,7 @@ namespace ClaudeUsageTray;
 /// Đọc chỉ-đọc qua winsqlite3.dll có sẵn trong Windows 10+, không cần thư viện ngoài.
 /// Không đọc cột email/account_id, không đụng bảng credential.
 /// </summary>
-internal static class OmpUsage
+public static class OmpUsage
 {
     public static string DefaultPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".omp", "agent", "agent.db");

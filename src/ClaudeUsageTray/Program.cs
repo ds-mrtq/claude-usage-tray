@@ -4,7 +4,8 @@ internal static class Program
 {
     /// <summary>
     /// Chạy: ClaudeUsageTray.exe [--data &lt;file json&gt;] [--omp &lt;agent.db của OMP | none&gt;]
-    /// Kiểm tra không cần giao diện: --render &lt;thư mục&gt; xuất panel.png và icon.png rồi thoát.
+    /// Kiểm tra không cần giao diện: --render &lt;thư mục&gt; [--api] xuất panel.png và icon.png rồi thoát
+    /// (--api: lấy hạn mức mới nhất từ API Anthropic trước, như bấm nút làm mới).
     /// </summary>
     [STAThread]
     private static int Main(string[] args)
@@ -28,7 +29,15 @@ internal static class Program
     {
         Directory.CreateDirectory(dir);
         var now = DateTimeOffset.Now;
-        var d = UsageData.Load(path, omp, now);
+        // --api: gọi API làm mới một lần (như bấm nút) trước khi vẽ
+        ApiUsage.Result? api = null;
+        if (Array.IndexOf(Environment.GetCommandLineArgs(), "--api") >= 0)
+        {
+            var (r, err) = ApiUsage.FetchAsync(now).GetAwaiter().GetResult();
+            Console.WriteLine(r != null ? "API: " + string.Join(", ", r.Limits.Select(l => $"{l.Kind} {l.PercentUsed}% reset {l.ResetsAt:HH:mm dd/MM}")) : "API lỗi: " + err);
+            api = r;
+        }
+        var d = UsageData.Load(path, omp, now, api);
         const float scale = 1.5f;
         var w = (int)(340 * scale);
         var h = Renderer.DrawPanel(null, d, w, scale, now);

@@ -26,26 +26,45 @@ public sealed class UsageData
     /// Mỗi hạn mức lấy bản đo mới hơn; Tuần · Fable chỉ OMP có.
     /// Context, chi phí, model chỉ có từ phiên Claude Code.
     /// </summary>
-    public static UsageData? Load(string jsonPath, string? ompPath, DateTimeOffset now)
+    public static UsageData? Load(string jsonPath, string? ompPath, DateTimeOffset now, ApiUsage.Result? api = null)
     {
-        var cc = TryLoad(jsonPath);
+        var d = TryLoad(jsonPath);
+        if (d != null) foreach (var l in d.Limits) l.At = d.MeasuredAt ?? d.WrittenAt;
         var omp = ompPath == null ? null : OmpUsage.TryLoad(ompPath, now);
-        if (omp == null) return cc;
-        if (cc == null)
-            return new UsageData { Schema = 1, WrittenAt = omp.RecordedAt, MeasuredAt = omp.RecordedAt, Limits = omp.Limits, Sources = "OMP" };
-
-        var ccAt = cc.MeasuredAt ?? cc.WrittenAt;
-        var usedOmp = false;
-        foreach (var o in omp.Limits)
+        if (omp != null) d = Merge(d, "OMP", omp.RecordedAt, omp.Limits);
+        // Lần làm mới bằng API (bấm nút) là bản đo mới nhất cho đến khi CC/OMP đo lại sau đó
+        if (api != null) d = Merge(d, "API", api.RecordedAt, api.Limits);
+        // Nhãn nguồn chỉ kể nguồn còn đứng sau số đang hiện (CC luôn có khi có file mod: context, chi phí)
+        if (d != null)
         {
-            var i = cc.Limits.FindIndex(l => l.Kind == o.Kind);
-            if (i < 0) { cc.Limits.Add(o); usedOmp = true; }
-            else if (omp.RecordedAt > ccAt) { cc.Limits[i] = o; usedOmp = true; }
+            var names = d.Limits.Select(l => l.Source).Where(s => s != "CC").Distinct().ToList();
+            if (d.Context != null || d.Cost != null || d.Limits.Any(l => l.Source == "CC")) names.Insert(0, "CC");
+            if (names.Count > 0) d.Sources = string.Join("+", names);
         }
-        cc.Limits.Sort((a, b) => OmpUsage.Order(a.Kind).CompareTo(OmpUsage.Order(b.Kind)));
-        if (usedOmp) cc.Sources = "CC+OMP";
-        if (omp.RecordedAt > cc.WrittenAt) cc.WrittenAt = omp.RecordedAt;
-        return cc;
+        return d;
+    }
+
+    /// <summary>Mỗi hạn mức giữ bản đo mới hơn; hạn mức chỉ nguồn mới có thì thêm vào.</summary>
+    private static UsageData Merge(UsageData? d, string name, DateTimeOffset at, List<LimitInfo> limits)
+    {
+        if (d == null)
+        {
+            foreach (var l in limits) { l.At = at; l.Source = name; }
+            return new UsageData { Schema = 1, WrittenAt = at, MeasuredAt = at, Limits = [.. limits], Sources = name };
+        }
+        var used = false;
+        foreach (var o in limits)
+        {
+            o.At = at;
+            o.Source = name;
+            var i = d.Limits.FindIndex(l => l.Kind == o.Kind);
+            if (i < 0) { d.Limits.Add(o); used = true; }
+            else if (at > d.Limits[i].At) { d.Limits[i] = o; used = true; }
+        }
+        d.Limits.Sort((a, b) => OmpUsage.Order(a.Kind).CompareTo(OmpUsage.Order(b.Kind)));
+        if (used && !d.Sources.Split('+').Contains(name)) d.Sources += "+" + name;
+        if (at > d.WrittenAt) d.WrittenAt = at;
+        return d;
     }
 
     public static string DefaultPath =>
@@ -82,6 +101,8 @@ public sealed class LimitInfo
     [JsonPropertyName("unit")] public string? Unit { get; set; }
     [JsonPropertyName("fullInMs")] public double? FullInMs { get; set; }
     [JsonIgnore] public string Source { get; set; } = "CC";
+    /// <summary>Thời điểm đo của nguồn đã cho số này (để chọn bản mới hơn khi ghép).</summary>
+    [JsonIgnore] public DateTimeOffset At { get; set; }
 }
 
 public sealed class ContextInfo

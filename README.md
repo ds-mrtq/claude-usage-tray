@@ -37,9 +37,10 @@ Hoặc từ bản clone: `claude plugin marketplace add <thư mục repo>` rồi
 1. Build: `dotnet build src/ClaudeUsageTray -c Release -nologo`
 2. Chạy `src/ClaudeUsageTray/bin/Release/net9.0-windows/ClaudeUsageTray.exe`. Windows 11 đặt icon mới vào vùng ẩn (mũi tên ^); kéo icon ra thanh taskbar để luôn thấy.
 3. Chuột trái vào icon: mở bảng. Bảng ghim nổi trên mọi cửa sổ, không tắt khi bấm ra ngoài hay đổi cửa sổ; tắt bằng nút x góc phải hoặc bấm lại icon. Kéo phần đầu bảng để di chuyển; kéo viền hoặc góc để đổi cỡ (chữ và biểu đồ phóng theo); nút ô vuông cạnh nút x phóng bảng chiếm trọn màn hình đang chứa nó (màn hình chính hay phụ), bấm lại hoặc kéo phần đầu bảng để trả về. Vị trí, cỡ và trạng thái phóng to được nhớ cho lần chạy sau (`%LOCALAPPDATA%\ClaudeUsageTray\window.json`; xoá file này để về mặc định).
-4. Chuột phải: Mở bảng, Đặt lại vị trí và cỡ (về góc khay, cỡ gốc, xoá vị trí đã lưu), Chạy cùng Windows, Mở thư mục dữ liệu, Thoát.
+4. Chuột phải: Mở bảng, Làm mới, Đặt lại vị trí và cỡ (về góc khay, cỡ gốc, xoá vị trí đã lưu), Chạy cùng Windows, Mở thư mục dữ liệu, Thoát.
 
 Màu số trên icon: vàng < 65%, cam ≥ 65%, đỏ ≥ 85%; "!!" khi 100%, "--" khi chưa có dữ liệu.
+5. Làm mới (nút mũi tên vòng ở header hoặc menu): lấy hạn mức mới nhất thẳng từ Anthropic (`api.anthropic.com/api/oauth/usage`, endpoint không công bố) bằng token OAuth Claude Code để ở `~/.claude/.credentials.json`. App chỉ đọc token, không tự làm mới token, không ghi token ra log, chỉ gửi token tới api.anthropic.com; gửi User-Agent `claude-code/<phiên bản>` lấy từ `claude --version`; giãn cách tối thiểu 30 giây, gặp 429 thì chờ theo `retry-after`. Hạn mức lấy theo cách này gắn nhãn `api`. Chi phí và context vẫn lấy từ file của mod. Kiểm không giao diện: `--render <thư mục> --api`.
 
 ## Nhật ký
 
@@ -51,3 +52,4 @@ Màu số trên icon: vàng < 65%, cam ≥ 65%, đỏ ≥ 85%; "!!" khi 100%, "-
 - 2026-11-11: Sửa phóng to trên màn hình phụ dựng dọc (trước chỉ cao 1041/1392 vì giữ tỉ lệ): nay chiếm trọn vùng làm việc, giãn khoảng dọc giữa các mục. Kéo khi đang phóng to thì trả về cỡ thường dưới con trỏ.
 - 2026-11-11: Thêm LICENSE MIT. Đưa mod usage-meter vào `mod/usage-meter` (bản 0.2.0), marketplace `claude-usage-tray` ở gốc repo; cài lại mod từ repo thay cho bản ở `~/.claude/mods`. Sửa sổ chi phí: "hôm nay" từng nhỏ hơn "phiên" ($14.64 so với $27.07) vì sổ cộng dồn delta theo mốc lần đo trước, mốc này sống sót qua lần cài lại còn kho lưu thì trống nên hụt $12.43 đầu phiên. Nay mỗi lần chạy (phiên + startedAt) ghi thẳng chi phí trong ngày = chi phí hiện tại − mốc đầu ngày; thêm test.
 - 2026-11-11: Thêm lệnh "Đặt lại vị trí và cỡ" ở menu chuột phải icon khay: bỏ vị trí/zoom/phóng to đã lưu, hiện bảng cỡ gốc ở góc khay. Smoke bằng chuột thật: từ (-655,556) 510x603 về (2210,980) 340x402; `window.json` về null/1; chạy lại app vẫn mở ở chỗ mặc định.
+- 2026-11-11: Thêm làm mới theo yêu cầu (nút ở header và menu "Làm mới"): gọi endpoint usage của Anthropic bằng token OAuth của Claude Code (anh đồng ý cách này), ghép thành nguồn thứ ba `API` theo bản đo mới nhất; nhãn nguồn chỉ kể nguồn còn đứng sau số đang hiện. Smoke chuột thật: bấm nút ra 5h 10%/tuần 39%/Fable 29% nhãn `api`; bấm liền lần hai báo đợi 27s; menu Làm mới sau 30s lấy lại được.

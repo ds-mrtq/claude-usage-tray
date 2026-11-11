@@ -14,6 +14,8 @@ internal sealed class PopupForm : Form
     private const float MinZoom = 0.6f, MaxZoom = 4f;
 
     private UsageData? _data;
+    /// <summary>Anh bấm nút làm mới ở header.</summary>
+    public event Action? RefreshRequested;
     private readonly WindowSettings _s = WindowSettings.Load();
     private float _zoom;
     private bool _userMoved;
@@ -209,6 +211,7 @@ internal sealed class PopupForm : Form
         {
             case Renderer.HeaderButton.Close: HidePanel("nút x"); return;
             case Renderer.HeaderButton.Max: ToggleMaximize(); return;
+            case Renderer.HeaderButton.Refresh: Log.Write("Refresh button"); RefreshRequested?.Invoke(); return;
         }
         if (e.Y < Renderer.HeaderHeight(Scale_))
         {

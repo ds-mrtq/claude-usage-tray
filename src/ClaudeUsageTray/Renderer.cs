@@ -71,12 +71,22 @@ internal static class Renderer
     /// <summary>Nút phóng to tối đa, nằm bên trái nút đóng.</summary>
     public static RectangleF MaxRect(int width, float scale) { var c = CloseRect(width, scale); return new(c.X - 18 * scale, c.Y, c.Width, c.Height); }
 
-    public enum HeaderButton { None, Max, Close }
+    /// <summary>Nút làm mới (lấy hạn mức mới nhất từ API), bên trái nút phóng to.</summary>
+    public static RectangleF RefreshRect(int width, float scale) { var c = MaxRect(width, scale); return new(c.X - 18 * scale, c.Y, c.Width, c.Height); }
+
+    public enum HeaderButton { None, Refresh, Max, Close }
     public static HeaderButton Hover;
     public static bool Maximized;
+    /// <summary>Đang gọi API làm mới.</summary>
+    public static bool Busy;
+    /// <summary>Thông báo ngắn ở header (lỗi làm mới...), thay cho dòng "x trước".</summary>
+    public static string? Status;
 
     public static HeaderButton HitButton(Point p, int width, float scale) =>
-        CloseRect(width, scale).Contains(p) ? HeaderButton.Close : MaxRect(width, scale).Contains(p) ? HeaderButton.Max : HeaderButton.None;
+        CloseRect(width, scale).Contains(p) ? HeaderButton.Close
+        : MaxRect(width, scale).Contains(p) ? HeaderButton.Max
+        : RefreshRect(width, scale).Contains(p) ? HeaderButton.Refresh
+        : HeaderButton.None;
 
     /// <summary>Vẽ bảng; g == null chỉ đo chiều cao. Đơn vị: pixel đã nhân scale DPI.</summary>
     public static int DrawPanel(Graphics? g, UsageData? d, int width, float scale, DateTimeOffset now, int stretchTo = 0)
@@ -136,10 +146,34 @@ internal static class Renderer
             g.FillEllipse(dot, P, y + S(3), S(8), S(8));
         }
         Text("CLAUDE USAGE", fCaps, Theme.Dim, P + S(13), y);
-        if (d != null) Text(Fmt.Ago(now - d.WrittenAt) + " trước · " + d.Sources, fMeta, now - d.WrittenAt > StaleAfter ? Theme.Orange : Theme.Faint, width - P - S(38), y, right: true);
+        var metaRight = width - P - S(56);
+        if (Busy) Text("đang lấy…", fMeta, Theme.Blue, metaRight, y, right: true);
+        else if (Status != null) Text(Status, fMeta, Theme.Orange, metaRight, y, right: true);
+        else if (d != null) Text(Fmt.Ago(now - d.WrittenAt) + " trước · " + d.Sources, fMeta, now - d.WrittenAt > StaleAfter ? Theme.Orange : Theme.Faint, metaRight, y, right: true);
         if (g != null)
         {
             var m = S(4);
+            // Nút làm mới: mũi tên vòng tròn
+            var rr = RefreshRect(width, scale);
+            if (Hover == HeaderButton.Refresh) { using var hb = new SolidBrush(Theme.Track); FillRounded(g, hb, rr, S(3)); }
+            using (var rp = new Pen(Busy ? Theme.Blue : Hover == HeaderButton.Refresh ? Theme.Text : Theme.Dim, Math.Max(1, S(1.3f))))
+            {
+                var arc = RectangleF.Inflate(rr, -m + S(0.5f), -m + S(0.5f));
+                g.DrawArc(rp, arc, 30, 290);
+                // đầu mũi tên tam giác đặc ở cuối cung (góc 320°), chỉ theo chiều kim đồng hồ
+                var ang = 320 * Math.PI / 180;
+                float R = arc.Width / 2, cx = arc.X + R, cy = arc.Y + arc.Height / 2;
+                float ex = cx + R * (float)Math.Cos(ang), ey = cy + R * (float)Math.Sin(ang);
+                float tx = -(float)Math.Sin(ang), ty = (float)Math.Cos(ang); // tiếp tuyến
+                float nx = (float)Math.Cos(ang), ny = (float)Math.Sin(ang);  // pháp tuyến hướng ra ngoài
+                using var ab = new SolidBrush(rp.Color);
+                g.FillPolygon(ab, new[]
+                {
+                    new PointF(ex + tx * S(2.6f), ey + ty * S(2.6f)),
+                    new PointF(ex + nx * S(2.4f) - tx * S(0.8f), ey + ny * S(2.4f) - ty * S(0.8f)),
+                    new PointF(ex - nx * S(2.4f) - tx * S(0.8f), ey - ny * S(2.4f) - ty * S(0.8f)),
+                });
+            }
             // Nút phóng to tối đa / trả lại: ô vuông, hoặc hai ô chồng khi đang phóng to
             var mr = MaxRect(width, scale);
             if (Hover == HeaderButton.Max) { using var hb = new SolidBrush(Theme.Track); FillRounded(g, hb, mr, S(3)); }
@@ -181,7 +215,8 @@ internal static class Renderer
         foreach (var l in d.Limits)
         {
             Text(l.Label, fCaps, Theme.Dim, P, y + S(8));
-            if (d.Sources == "CC+OMP" && l.Source == "OMP") Text("omp", fMeta, Theme.Purple, P + TextW(l.Label, fCaps) + S(4), y + S(8));
+            if (d.Sources.Contains('+') && l.Source != "CC")
+                Text(l.Source.ToLowerInvariant(), fMeta, l.Source == "API" ? Theme.Blue : Theme.Purple, P + TextW(l.Label, fCaps) + S(4), y + S(8));
             Text(Math.Round(l.PercentUsed) + "%", fBig, Theme.Heat(l.PercentUsed), width - P + S(4), y - S(2), right: true);
             y += S(28);
             Bar(g, P, y, iw, S(8), l.PercentUsed, Theme.BarColor(l.PercentUsed), new[] { 25.0, 50, 75 }, l.ExpectedPercent, null, scale);

@@ -18,6 +18,8 @@ internal sealed class TrayApp : ApplicationContext
     private readonly System.Windows.Forms.Timer _debounce = new() { Interval = 300 };
     private readonly ToolStripMenuItem _startup;
     private UsageData? _data;
+    private ApiUsage.Result? _api;
+    private readonly System.Windows.Forms.Timer _clearStatus = new() { Interval = 8000 };
     private IntPtr _hIcon;
 
     public TrayApp(string path, string? ompPath)
@@ -28,6 +30,7 @@ internal sealed class TrayApp : ApplicationContext
         _startup = new ToolStripMenuItem("Chạy cùng Windows", null, (_, _) => ToggleStartup()) { Checked = IsStartupEnabled() };
         var menu = new ContextMenuStrip();
         menu.Items.Add("Mở bảng", null, (_, _) => _popup.ShowNearTray());
+        menu.Items.Add("Làm mới", null, (_, _) => RefreshNow());
         menu.Items.Add("Đặt lại vị trí và cỡ", null, (_, _) => _popup.ResetLayout());
         menu.Items.Add(_startup);
         menu.Items.Add("Mở thư mục dữ liệu", null, (_, _) => OpenDataFolder());
@@ -65,6 +68,8 @@ internal sealed class TrayApp : ApplicationContext
             };
             _ompWatcher.Changed += (_, _) => Kick();
         }
+        _popup.RefreshRequested += RefreshNow;
+        _clearStatus.Tick += (_, _) => { _clearStatus.Stop(); Renderer.Status = null; _popup.Invalidate(); };
         _debounce.Tick += (_, _) => { _debounce.Stop(); Reload(); };
         _tick.Tick += (_, _) => Reload(); // vẽ lại đếm ngược reset và trạng thái "cũ"
         _tick.Start();
@@ -77,7 +82,7 @@ internal sealed class TrayApp : ApplicationContext
     private void Reload()
     {
         var now = DateTimeOffset.Now;
-        _data = UsageData.Load(_path, _ompPath, now) ?? _data;
+        _data = UsageData.Load(_path, _ompPath, now, _api) ?? _data;
         var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
         using var bmp = Renderer.DrawIcon(_data, size, now);
         var h = bmp.GetHicon();
@@ -86,6 +91,23 @@ internal sealed class TrayApp : ApplicationContext
         _hIcon = h;
         _icon.Text = Renderer.Tooltip(_data, now);
         _popup.SetData(_data);
+    }
+
+    /// <summary>Lấy hạn mức mới nhất từ API Anthropic rồi đọc lại file của mod và OMP.</summary>
+    private async void RefreshNow()
+    {
+        if (Renderer.Busy) return;
+        Renderer.Busy = true;
+        Renderer.Status = null;
+        _popup.Invalidate();
+        var (r, err) = await ApiUsage.FetchAsync(DateTimeOffset.Now);
+        Renderer.Busy = false;
+        if (r != null) _api = r;
+        Renderer.Status = err;
+        Log.Write(r != null ? $"Refresh OK: {string.Join(", ", r.Limits.Select(l => $"{l.Kind}={l.PercentUsed}"))}" : $"Refresh failed: {err}");
+        Reload();
+        _popup.Invalidate();
+        if (err != null) { _clearStatus.Stop(); _clearStatus.Start(); }
     }
 
     private static bool IsStartupEnabled()
@@ -117,6 +139,7 @@ internal sealed class TrayApp : ApplicationContext
         _ompWatcher?.Dispose();
         _tick.Dispose();
         _debounce.Dispose();
+        _clearStatus.Dispose();
         _popup.Dispose();
         if (_hIcon != IntPtr.Zero) DestroyIcon(_hIcon);
         base.ExitThreadCore();
