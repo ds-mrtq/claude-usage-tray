@@ -5,7 +5,9 @@ public sealed class SessionEntry
 {
     public required string Key { get; init; }          // "cc:&lt;sessionId&gt;" | "omp:&lt;đường dẫn file&gt;"
     public required string Kind { get; init; }         // "CC" | "OMP"
-    public required string Name { get; init; }
+    public required string Name { get; set; }
+    /// <summary>Giờ mở phiên (giờ tạo file phiên của mod), dùng phân biệt phiên trùng tên.</summary>
+    public DateTimeOffset? Started { get; init; }
     public string? Model { get; init; }
     public string? Effort { get; init; }
     public double? Tokens { get; init; }
@@ -61,17 +63,26 @@ public static class SessionList
                     Model = o.Model, Tokens = o.Tokens, Window = o.Window, AutoCompactAt = o.AutoCompactAt,
                     CostUsd = o.CostUsd, At = o.At, Omp = o,
                 });
+        // Nhiều phiên cùng thư mục (vd hai phiên mở ở cùng repo) trùng tên: thêm giờ mở phiên để phân biệt
+        foreach (var g in list.GroupBy(e => (e.Kind, e.Name)).Where(g => g.Count() > 1))
+            foreach (var e in g)
+                if (e.Started is { } s)
+                    e.Name += " · mở " + s.ToLocalTime().ToString(s.ToLocalTime().Date == now.ToLocalTime().Date ? "HH:mm" : "dd/MM HH:mm");
         return list.OrderByDescending(e => e.At).ToList();
     }
 
-    private static SessionEntry FromCc(UsageData u, DateTimeOffset at, bool legacy) => new()
+    private static SessionEntry FromCc(UsageData u, DateTimeOffset at, bool legacy)
     {
-        Key = "cc:" + u.SessionId, Kind = "CC",
-        Name = u.Cwd is { Length: > 0 } c ? Path.GetFileName(c.TrimEnd('\\', '/')) : (u.SessionId?[..Math.Min(8, u.SessionId.Length)] ?? "phiên Claude Code"),
-        Model = u.MainModel, Effort = u.MainEffort,
-        Tokens = u.Context?.Tokens, Window = u.Context?.Window, AutoCompactAt = u.Context?.AutoCompactAt,
-        CostUsd = u.Cost?.Session, At = at, Legacy = legacy, Cc = u,
-    };
+        var (title, started) = CcTranscript.Info(u.SessionId, u.Cwd);
+        return new()
+        {
+            Key = "cc:" + u.SessionId, Kind = "CC", Started = started,
+            Name = title ?? (u.Cwd is { Length: > 0 } c ? Path.GetFileName(c.TrimEnd('\\', '/')) : (u.SessionId?[..Math.Min(8, u.SessionId.Length)] ?? "phiên Claude Code")),
+            Model = u.MainModel, Effort = u.MainEffort,
+            Tokens = u.Context?.Tokens, Window = u.Context?.Window, AutoCompactAt = u.Context?.AutoCompactAt,
+            CostUsd = u.Cost?.Session, At = at, Legacy = legacy, Cc = u,
+        };
+    }
 
     private static IEnumerable<string> SafeFiles(string dir)
     {
