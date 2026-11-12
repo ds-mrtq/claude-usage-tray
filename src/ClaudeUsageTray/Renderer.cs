@@ -326,8 +326,7 @@ internal static class Renderer
                         + "Dùng đều tay thì lúc này đã dùng đúng tới mốc này.\n"
                         + (diff > 0 ? $"Phần tô vượt mốc {diff}%: đang dùng nhanh hơn nhịp."
                            : diff < 0 ? $"Phần tô còn cách mốc {-diff}%: đang dùng chậm hơn nhịp."
-                           : "Phần tô đúng bằng mốc: dùng đúng nhịp.")
-                        + "\n(Không phải mốc compact: compact là vạch cam nét đứt trên thanh context.)";
+                           : "Phần tô đúng bằng mốc: dùng đúng nhịp.");
             }
             Bar(g, P, y, iw, S(8), l.PercentUsed, Theme.BarColor(l.PercentUsed), new[] { 25.0, 50, 75 }, l.ExpectedPercent, null, scale, paceTip);
             y += S(13);
