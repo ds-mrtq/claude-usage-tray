@@ -186,6 +186,9 @@ internal sealed class PopupForm : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         Renderer.DrawPanel(e.Graphics, _data, Width, Scale_, DateTimeOffset.Now, Renderer.Maximized ? Height : 0);
+        // Dữ liệu vẽ lại có thể dời vạch: chỉ vẽ chú thích khi con trỏ vẫn nằm trên đúng vạch đó
+        if (_tipText != null && Renderer.TipAt(_tipAt) == _tipText)
+            Renderer.DrawTip(e.Graphics, _tipText, _tipAt, Width, Height, Scale_);
         if (Log.On)
         {
             // Vùng bấm theo toạ độ màn hình, để script smoke bấm chuột thật đúng chỗ
@@ -193,6 +196,10 @@ internal sealed class PopupForm : Form
             {
                 var c = PointToScreen(new Point((int)(h.rect.X + h.rect.Width / 2), (int)(h.rect.Y + h.rect.Height / 2)));
                 return $"{(h.key.StartsWith("cc:") ? "cc" : h.key.StartsWith("omp:") ? "omp" : h.key)}@{c.X},{c.Y}";
+            })) + " " + string.Join(" ", Renderer.Tips.Select(t =>
+            {
+                var c = PointToScreen(new Point((int)(t.rect.X + t.rect.Width / 2), (int)(t.rect.Y + t.rect.Height / 2)));
+                return $"tip@{c.X},{c.Y}";
             }));
             if (hits != _lastHits) { _lastHits = hits; Log.Write("Hits " + hits); }
         }
@@ -208,11 +215,27 @@ internal sealed class PopupForm : Form
             Invalidate();
         }
         Cursor = hover != Renderer.HeaderButton.None || Renderer.HitSession(e.Location) != null ? Cursors.Hand : Cursors.Default;
+        UpdateTip(e.Location);
         base.OnMouseMove(e);
+    }
+
+    // Chú thích vạch nhịp / vạch auto-compact, tự vẽ trong OnPaint (Renderer.DrawTip)
+    private string? _tipText;
+    private Point _tipAt;
+
+    private void UpdateTip(Point p)
+    {
+        var text = Renderer.TipAt(p);
+        if (text == _tipText) return;
+        _tipText = text;
+        _tipAt = p;
+        Invalidate();
+        if (text != null) Log.Write("Tooltip " + text.Split('\n')[0]);
     }
 
     protected override void OnMouseLeave(EventArgs e)
     {
+        UpdateTip(new Point(-1, -1));
         if (Renderer.Hover != Renderer.HeaderButton.None) { Renderer.Hover = Renderer.HeaderButton.None; Cursor = Cursors.Default; Invalidate(); }
         base.OnMouseLeave(e);
     }

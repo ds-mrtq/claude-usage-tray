@@ -90,6 +90,39 @@ internal static class Renderer
     /// <summary>Vùng bấm (pixel trong bảng) vẽ ở lần vẽ gần nhất: nút danh sách, từng dòng phiên.</summary>
     public static readonly List<(RectangleF rect, string key)> Hits = [];
 
+    /// <summary>Vùng có chú thích khi rê chuột (vạch nhịp, vạch auto-compact) ở lần vẽ gần nhất.</summary>
+    public static readonly List<(RectangleF rect, string text)> Tips = [];
+
+    public static string? TipAt(Point p)
+    {
+        foreach (var (r, t) in Tips) if (r.Contains(p)) return t;
+        return null;
+    }
+
+    /// <summary>
+    /// Vẽ khung chú thích ngay trong bảng, cạnh con trỏ, giữ trong mép bảng. Không dùng ToolTip của WinForms:
+    /// bảng là cửa sổ WS_EX_NOACTIVATE nên cửa sổ tooltip được tạo nhưng không bao giờ hiện.
+    /// </summary>
+    public static void DrawTip(Graphics g, string text, Point at, int width, int height, float scale)
+    {
+        float S(float v) => v * scale;
+        using var f = Theme.Mono(S(8f));
+        var maxW = width - S(16);
+        var sz = g.MeasureString(text, f, (int)(maxW - S(16)));
+        var w = sz.Width + S(16);
+        var h = sz.Height + S(12);
+        var x = Math.Clamp(at.X - w / 2, S(6), width - w - S(6));
+        var y = at.Y + S(16);
+        if (y + h > height - S(4)) y = at.Y - h - S(10);
+        var r = new RectangleF(x, y, w, h);
+        using (var sh = new SolidBrush(Color.FromArgb(110, 0, 0, 0))) FillRounded(g, sh, new RectangleF(r.X + S(2), r.Y + S(3), r.Width, r.Height), S(5));
+        using (var bg = new SolidBrush(ColorTranslator.FromHtml("#3c3f41"))) FillRounded(g, bg, r, S(5));
+        using (var pen = new Pen(ColorTranslator.FromHtml("#5e6366"), Math.Max(1, S(1))))
+            g.DrawRectangle(pen, r.X, r.Y, r.Width, r.Height);
+        using var tb = new SolidBrush(ColorTranslator.FromHtml("#d0d0d0"));
+        g.DrawString(text, f, tb, new RectangleF(x + S(8), y + S(6), sz.Width + S(2), sz.Height + S(2)));
+    }
+
     public static string? HitSession(Point p)
     {
         foreach (var (r, k) in Hits) if (r.Contains(p)) return k;
@@ -213,7 +246,7 @@ internal static class Renderer
             g.DrawLine(xp, cr.Right - m, cr.Y + m, cr.X + m, cr.Bottom - m);
         }
         y += S(20);
-        if (g != null) Hits.Clear();
+        if (g != null) { Hits.Clear(); Tips.Clear(); }
         var totalView = d != null && d.Selected == null && d.Sessions.Count > 0;
         if (d != null && (d.Sessions.Count > 0 || d.Selected != null))
         {
@@ -285,7 +318,18 @@ internal static class Renderer
                 Text(l.Source.ToLowerInvariant(), fMeta, l.Source == "API" ? Theme.Blue : Theme.Purple, P + TextW(l.Label, fCaps) + S(4), y + S(8));
             Text(Math.Round(l.PercentUsed) + "%", fBig, Theme.Heat(l.PercentUsed), width - P + S(4), y - S(2), right: true);
             y += S(28);
-            Bar(g, P, y, iw, S(8), l.PercentUsed, Theme.BarColor(l.PercentUsed), new[] { 25.0, 50, 75 }, l.ExpectedPercent, null, scale);
+            string? paceTip = null;
+            if (l.ExpectedPercent is { } ex)
+            {
+                var diff = (int)Math.Round(l.PercentUsed - ex);
+                paceTip = $"Mốc nhịp ▼ {ex:0}%: đã qua {ex:0}% thời gian của kỳ {l.Label.ToLowerInvariant()}.\n"
+                        + "Dùng đều tay thì lúc này đã dùng đúng tới mốc này.\n"
+                        + (diff > 0 ? $"Phần tô vượt mốc {diff}%: đang dùng nhanh hơn nhịp."
+                           : diff < 0 ? $"Phần tô còn cách mốc {-diff}%: đang dùng chậm hơn nhịp."
+                           : "Phần tô đúng bằng mốc: dùng đúng nhịp.")
+                        + "\n(Không phải mốc compact: compact là vạch cam nét đứt trên thanh context.)";
+            }
+            Bar(g, P, y, iw, S(8), l.PercentUsed, Theme.BarColor(l.PercentUsed), new[] { 25.0, 50, 75 }, l.ExpectedPercent, null, scale, paceTip);
             y += S(13);
             TimeSpan? resetIn = l.ResetsAt != null ? l.ResetsAt.Value - now : null;
             var warn = l.FullInMs != null && resetIn != null && TimeSpan.FromMilliseconds(l.FullInMs.Value) < resetIn;
@@ -334,7 +378,8 @@ internal static class Renderer
                 Text(right, fMeta, Theme.Heat(hot), width - P, y, right: true);
                 y += S(14);
                 double? flag = e.AutoCompactAt != null && e.Window is > 0 ? e.AutoCompactAt / e.Window * 100 : null;
-                Bar(g, P + S(28), y, iw - S(28), S(4), e.Percent ?? 0, e.Kind == "OMP" ? Theme.Purple : Theme.Blue, [], null, flag, scale);
+                Bar(g, P + S(28), y, iw - S(28), S(4), e.Percent ?? 0, e.Kind == "OMP" ? Theme.Purple : Theme.Blue, [], null, flag, scale,
+                    flagTip: e.AutoCompactAt != null && e.Window != null ? CompactTip(e.Kind, e.AutoCompactAt.Value, e.Window.Value, e.Tokens) : null);
                 y += S(8);
                 Text(sub, fMeta, Theme.Faint, P + S(28), y);
                 y += S(16);
@@ -353,7 +398,8 @@ internal static class Renderer
             Text(Math.Round(cp) + "%", fMid, Theme.Heat(cp), width - P + S(3), y - S(2), right: true);
             y += S(20);
             double? ac = d.Context.AutoCompactAt != null && d.Context.Window > 0 ? d.Context.AutoCompactAt / d.Context.Window * 100 : null;
-            Bar(g, P, y, iw, S(6), cp, cp >= 85 ? Theme.Red : Theme.Blue, [], null, ac, scale);
+            Bar(g, P, y, iw, S(6), cp, cp >= 85 ? Theme.Red : Theme.Blue, [], null, ac, scale,
+                flagTip: d.Context.AutoCompactAt != null ? CompactTip("CC", d.Context.AutoCompactAt.Value, d.Context.Window, d.Context.Tokens) : null);
             y += S(11);
             Text($"{Fmt.Tok(d.Context.Tokens ?? 0)} / {Fmt.Tok(d.Context.Window)}", fMeta, Theme.Dim, P, y);
             if (d.Context.AutoCompactAt != null) Text("auto-compact " + Fmt.Tok(d.Context.AutoCompactAt.Value), fMeta, Theme.Orange, width - P, y, right: true);
@@ -369,7 +415,8 @@ internal static class Renderer
             Text("CONTEXT · OMP", fCaps, Theme.Dim, P, y + S(2));
             Text(Math.Round(op) + "%", fMid, Theme.Heat(oc.AutoCompactAt > 0 ? oc.Tokens / oc.AutoCompactAt * 100 : op), width - P + S(3), y - S(2), right: true);
             y += S(20);
-            Bar(g, P, y, iw, S(6), op, oc.Tokens >= oc.AutoCompactAt * 0.95 ? Theme.Red : Theme.Purple, [], null, oc.AutoCompactAt / oc.Window * 100, scale);
+            Bar(g, P, y, iw, S(6), op, oc.Tokens >= oc.AutoCompactAt * 0.95 ? Theme.Red : Theme.Purple, [], null, oc.AutoCompactAt / oc.Window * 100, scale,
+                flagTip: CompactTip("OMP", oc.AutoCompactAt, oc.Window, oc.Tokens));
             y += S(11);
             Text($"{Fmt.Tok(oc.Tokens)} / {Fmt.Tok(oc.Window)}", fMeta, Theme.Dim, P, y);
             Text("auto-compact " + Fmt.Tok(oc.AutoCompactAt), fMeta, Theme.Orange, width - P, y, right: true);
@@ -453,7 +500,16 @@ internal static class Renderer
         g.DrawString(text, f, tb, x + 3 * scale, y + 0.5f * scale);
     }
 
-    private static void Bar(Graphics? g, float x, float y, float w, float h, double pct, Color fill, double[] marks, double? pace, double? flag, float scale)
+    private static string CompactTip(string kind, double at, double window, double? tokens)
+    {
+        var s = $"Mốc auto-compact (vạch cam nét đứt): {Fmt.Tok(at)} = {at / window * 100:0}% cửa sổ {Fmt.Tok(window)}.\n"
+              + $"Context chạm vạch này thì {(kind == "OMP" ? "OMP" : "Claude Code")} tự nén hội thoại.";
+        if (tokens is { } t) s += t < at ? $"\nCòn {Fmt.Tok(at - t)} tokens nữa." : "\nĐã chạm mốc: lượt tới sẽ nén.";
+        return s;
+    }
+
+    private static void Bar(Graphics? g, float x, float y, float w, float h, double pct, Color fill, double[] marks, double? pace, double? flag, float scale,
+        string? paceTip = null, string? flagTip = null)
     {
         if (g == null) return;
         var r = h / 2;
@@ -470,14 +526,20 @@ internal static class Renderer
                 g.FillRectangle(mb, x + (float)(m / 100) * w - 0.5f * scale, y + 2 * scale, 1 * scale, Math.Max(1, h - 4 * scale));
         if (pace != null)
         {
-            using var pb = new SolidBrush(Theme.Dim);
-            g.FillRectangle(pb, x + (float)(Math.Min(100, pace.Value) / 100) * w - 1.5f * scale, y - 3 * scale, 3 * scale, h + 6 * scale);
+            // Mốc nhịp: tam giác ▼ màu chữ trên thanh + đường mảnh liền xuyên thanh (khác hẳn vạch cam nét đứt của compact)
+            var px = x + (float)(Math.Clamp(pace.Value, 0, 100) / 100) * w;
+            using var pb = new SolidBrush(Theme.Text);
+            var tw = 4.5f * scale;
+            g.FillPolygon(pb, new[] { new PointF(px - tw, y - 6 * scale), new PointF(px + tw, y - 6 * scale), new PointF(px, y - 0.5f * scale) });
+            g.FillRectangle(pb, px - 0.75f * scale, y, 1.5f * scale, h + 2 * scale);
+            if (paceTip != null) Tips.Add((new RectangleF(px - 8 * scale, y - 9 * scale, 16 * scale, h + 14 * scale), paceTip));
         }
         if (flag != null)
         {
             using var pen = new Pen(Theme.Orange, 2 * scale) { DashPattern = [2f, 1.5f] };
             var fx = x + (float)(Math.Min(100, flag.Value) / 100) * w;
             g.DrawLine(pen, fx, y - 4 * scale, fx, y + h + 4 * scale);
+            if (flagTip != null) Tips.Add((new RectangleF(fx - 8 * scale, y - 7 * scale, 16 * scale, h + 14 * scale), flagTip));
         }
     }
 
